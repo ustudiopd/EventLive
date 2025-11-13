@@ -12,9 +12,27 @@ import { createBrowserClient } from '@supabase/ssr'
 export function createClientSupabase() {
   // WebSocket 연결 문제를 방지하기 위해 원래 Supabase URL 사용
   // Realtime은 WebSocket(wss://)을 사용하므로 rewrites로 프록시할 수 없음
-  return createBrowserClient(
+  const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
+  
+  // Realtime 토큰 주입 (세션이 있을 때)
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (session?.access_token) {
+      supabase.realtime.setAuth(session.access_token)
+    } else {
+      supabase.realtime.setAuth(null)
+    }
+  })
+  
+  // 초기 세션 확인 및 토큰 주입
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (session?.access_token) {
+      supabase.realtime.setAuth(session.access_token)
+    }
+  })
+  
+  return supabase
 }
 

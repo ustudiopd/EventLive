@@ -6,11 +6,19 @@ export const runtime = 'nodejs'
 
 export async function POST(req: Request) {
   try {
-    const { webinarId, content } = await req.json()
+    const { webinarId, content, clientMsgId } = await req.json()
     
     if (!webinarId || !content) {
       return NextResponse.json(
-        { error: 'webinarId and content are required' },
+        { success: false, error: 'webinarId and content are required' },
+        { status: 400 }
+      )
+    }
+    
+    // clientMsgId 검증 (UUID 형식)
+    if (clientMsgId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientMsgId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid client_msg_id format' },
         { status: 400 }
       )
     }
@@ -20,7 +28,7 @@ export async function POST(req: Request) {
     
     if (!user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       )
     }
@@ -35,7 +43,7 @@ export async function POST(req: Request) {
     
     if (!webinar) {
       return NextResponse.json(
-        { error: 'Webinar not found' },
+        { success: false, error: 'Webinar not found' },
         { status: 404 }
       )
     }
@@ -44,12 +52,12 @@ export async function POST(req: Request) {
     const trimmedContent = content.trim()
     if (trimmedContent.length === 0 || trimmedContent.length > 500) {
       return NextResponse.json(
-        { error: 'Message content must be between 1 and 500 characters' },
+        { success: false, error: 'Message content must be between 1 and 500 characters' },
         { status: 400 }
       )
     }
     
-    // 메시지 생성
+    // 메시지 생성 (client_msg_id 포함)
     const { data: message, error: messageError } = await admin
       .from('messages')
       .insert({
@@ -58,21 +66,33 @@ export async function POST(req: Request) {
         webinar_id: webinarId,
         user_id: user.id,
         content: trimmedContent,
+        client_msg_id: clientMsgId || null,
       })
-      .select()
+      .select('id, webinar_id, user_id, content, created_at, hidden, client_msg_id')
       .single()
     
     if (messageError) {
+      // 중복 client_msg_id 에러 처리
+      if (messageError.code === '23505' && messageError.message.includes('messages_client_msg_unique')) {
+        return NextResponse.json(
+          { success: false, error: 'Duplicate message detected' },
+          { status: 409 }
+        )
+      }
       return NextResponse.json(
-        { error: messageError.message },
+        { success: false, error: messageError.message },
         { status: 500 }
       )
     }
     
-    return NextResponse.json({ success: true, message })
+    // 성공 응답 (일관된 스키마)
+    return NextResponse.json({ 
+      success: true, 
+      message 
+    })
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { success: false, error: error.message || 'Internal server error' },
       { status: 500 }
     )
   }

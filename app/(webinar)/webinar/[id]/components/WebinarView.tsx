@@ -204,11 +204,11 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
   return (
     <>
       {mounted && createPortal(fullscreenContent, document.body)}
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 w-full">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 w-full overflow-x-hidden">
       {/* 헤더 */}
       <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40 w-full">
-        <div className="w-full mx-auto px-3 py-2 sm:px-4 sm:py-3 lg:py-4">
-          <div className="flex items-center justify-between max-w-[100%] mx-auto">
+        <div className="w-full max-w-[1600px] mx-auto px-2 sm:px-3 lg:px-4 py-2 sm:py-3 lg:py-4">
+          <div className="flex items-center justify-between w-full">
             <div className="flex-1 min-w-0">
               <h1 className="text-base sm:text-lg lg:text-2xl font-bold text-gray-900 truncate">{webinar.title}</h1>
               {webinar.description && (
@@ -226,8 +226,8 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
         </div>
       </header>
       
-      <div className="w-full mx-auto px-2 sm:px-3 lg:px-4 py-2 sm:py-3 lg:py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3 lg:gap-6 max-w-[100%] mx-auto">
+      <div className="w-full max-w-[1600px] mx-auto px-0 sm:px-2 lg:px-4 py-2 sm:py-3 lg:py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3 lg:gap-6 w-full">
           {/* 메인 영역 - YouTube 플레이어 */}
           <div className="lg:col-span-2 space-y-2 sm:space-y-3 lg:space-y-4">
             {/* YouTube 플레이어 */}
@@ -344,7 +344,7 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
           
           {/* 사이드바 - 채팅/Q&A (데스크톱) */}
           <div className="hidden lg:block lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden h-[calc(100vh-200px)] flex flex-col max-w-[400px] mx-auto">
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden h-[calc(100vh-200px)] flex flex-col w-full max-w-[400px]">
               {/* 탭 */}
               <div className="border-b border-gray-200 flex">
                 <button

@@ -14,6 +14,7 @@ interface Message {
     email?: string
   }
   isOptimistic?: boolean // Optimistic Update 플래그
+  client_msg_id?: string // 클라이언트 메시지 ID (정확한 매칭용)
 }
 
 interface ChatProps {
@@ -50,8 +51,13 @@ export default function Chat({
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [fallbackOn, setFallbackOn] = useState(false)
   const [currentUser, setCurrentUser] = useState<{ id: string; display_name?: string; email?: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const sendingClientMsgIdRef = useRef<string | null>(null)
+  const lastEventAt = useRef<number>(Date.now())
+  const lastMessageIdRef = useRef<number>(0)
+  const reconnectTriesRef = useRef<number>(0)
   const supabase = createClientSupabase()
   
   // 현재 사용자 정보 로드 (API 사용하여 RLS 우회)
@@ -100,12 +106,23 @@ export default function Chat({
     loadCurrentUser()
   }, [supabase])
   
-  // 메시지 로드
+  // 메시지 로드 및 Realtime 구독
   useEffect(() => {
     loadMessages()
     
-    // 고유한 채널 이름 생성 (타임스탬프 포함하여 중복 방지)
-    const channelName = `webinar-${webinarId}-messages-${Date.now()}`
+    // 고정 채널명 사용 (중복 구독 방지)
+    const channelName = `webinar:${webinarId}:messages`
+    
+    // 기존 채널 확인 및 제거 (안전장치)
+    const existingChannel = supabase.getChannels().find(
+      ch => ch.topic === `realtime:${channelName}`
+    )
+    if (existingChannel) {
+      console.warn('기존 채널 발견, 제거 중:', channelName)
+      existingChannel.unsubscribe().then(() => {
+        supabase.removeChannel(existingChannel)
+      })
+    }
     
     // 실시간 구독
     const channel = supabase
@@ -125,8 +142,15 @@ export default function Chat({
         (payload) => {
           console.log('실시간 메시지 이벤트:', payload.eventType, payload)
           
+          lastEventAt.current = Date.now() // 이벤트 수신 시간 업데이트
+          reconnectTriesRef.current = 0 // 재연결 시도 횟수 리셋
+          
+          // 이벤트 수신 시 폴백 끄기
+          if (fallbackOn) {
+            setFallbackOn(false)
+          }
+          
           if (payload.eventType === 'INSERT') {
-            // 새 메시지만 추가 (전체 로드 대신)
             const newMsg = payload.new as any
             if (newMsg && !newMsg.hidden) {
               console.log('새 메시지 수신:', newMsg)
@@ -134,7 +158,6 @@ export default function Chat({
               // 프로필 정보를 API로 빠르게 조회
               const fetchProfile = async () => {
                 try {
-                  // API를 통해 프로필 정보 조회 (가장 빠른 방법)
                   const response = await fetch(`/api/profiles/${newMsg.user_id}`)
                   if (response.ok) {
                     const { profile } = await response.json()
@@ -144,7 +167,6 @@ export default function Chat({
                   console.warn('API를 통한 프로필 조회 실패:', apiError)
                 }
                 
-                // 폴백: 직접 조회
                 try {
                   const { data: profile, error: profileError } = await supabase
                     .from('profiles')
@@ -162,65 +184,64 @@ export default function Chat({
                 return null
               }
               
-              // 프로필 정보를 빠르게 조회하고 메시지 추가
               fetchProfile().then((profile) => {
                 setMessages((prev) => {
-                  // 이미 존재하는 메시지인지 확인 (중복 방지)
-                  const exists = prev.some(m => m.id === newMsg.id || (typeof m.id === 'string' && m.id.startsWith('temp-') && m.user_id === newMsg.user_id && m.content === newMsg.content))
-                  if (exists) {
-                    // Optimistic 메시지가 있으면 실제 메시지로 교체
-                    return prev.map((msg) => {
-                      if (msg.isOptimistic && msg.user_id === newMsg.user_id && msg.content === newMsg.content) {
-                        return {
-                          id: newMsg.id,
-                          user_id: newMsg.user_id,
-                          content: newMsg.content,
-                          created_at: newMsg.created_at,
-                          hidden: newMsg.hidden,
-                          user: profile || msg.user, // 프로필 정보
-                          isOptimistic: false,
-                        }
-                      }
-                      return msg
-                    }).filter(msg => !msg.isOptimistic || msg.user_id !== newMsg.user_id || msg.content !== newMsg.content)
-                  }
+                  // client_msg_id로 optimistic 메시지 정확 교체
+                  const optimisticIndex = prev.findIndex(m => {
+                    if (!m.isOptimistic) return false
+                    if (newMsg.client_msg_id) {
+                      // client_msg_id가 있으면 정확 매칭
+                      return m.client_msg_id === newMsg.client_msg_id
+                    }
+                    // 하위 호환성: client_msg_id가 없으면 기존 방식 사용
+                    return m.user_id === newMsg.user_id && m.content === newMsg.content
+                  })
                   
-                  // Optimistic 메시지 찾기 및 제거
-                  const optimisticIndex = prev.findIndex(
-                    m => m.isOptimistic && 
-                    m.user_id === newMsg.user_id && 
-                    m.content === newMsg.content
-                  )
-                  
-                  let filtered = prev
                   if (optimisticIndex !== -1) {
-                    // Optimistic 메시지 제거
-                    filtered = prev.filter((_, idx) => idx !== optimisticIndex)
+                    // Optimistic 메시지를 실제 메시지로 교체
+                    const updated = [...prev]
+                    updated[optimisticIndex] = {
+                      ...newMsg,
+                      user: profile || prev[optimisticIndex].user,
+                      isOptimistic: false,
+                    }
+                    return updated
                   }
                   
-                  // 새 메시지 추가
-                  return [...filtered, {
+                  // 새 메시지 추가 (중복 방지)
+                  if (prev.some(m => m.id === newMsg.id)) return prev
+                  
+                  return [...prev, {
                     id: newMsg.id,
                     user_id: newMsg.user_id,
                     content: newMsg.content,
                     created_at: newMsg.created_at,
                     hidden: newMsg.hidden,
-                    user: profile, // 프로필 정보
-                  }].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                    user: profile,
+                    client_msg_id: newMsg.client_msg_id,
+                  }].sort((a, b) => 
+                    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                  )
                 })
+                
+                // 내가 보낸 메시지면 스피너 끄기 (이중 안전장치)
+                if (newMsg.user_id === currentUser?.id) {
+                  setSending(false)
+                  sendingClientMsgIdRef.current = null
+                }
               }).catch((error) => {
                 console.error('프로필 조회 오류:', error)
-                // 프로필 없이도 메시지 추가 (나중에 프로필 정보 업데이트)
+                // 프로필 없이도 메시지 추가
                 setMessages((prev) => {
-                  const exists = prev.some(m => m.id === newMsg.id)
-                  if (exists) return prev
+                  if (prev.some(m => m.id === newMsg.id)) return prev
                   
-                  // Optimistic 메시지 찾기 및 제거
-                  const optimisticIndex = prev.findIndex(
-                    m => m.isOptimistic && 
-                    m.user_id === newMsg.user_id && 
-                    m.content === newMsg.content
-                  )
+                  const optimisticIndex = prev.findIndex(m => {
+                    if (!m.isOptimistic) return false
+                    if (newMsg.client_msg_id) {
+                      return m.client_msg_id === newMsg.client_msg_id
+                    }
+                    return m.user_id === newMsg.user_id && m.content === newMsg.content
+                  })
                   
                   let filtered = prev
                   if (optimisticIndex !== -1) {
@@ -234,33 +255,20 @@ export default function Chat({
                     created_at: newMsg.created_at,
                     hidden: newMsg.hidden,
                     user: undefined,
-                  }].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                    client_msg_id: newMsg.client_msg_id,
+                  }].sort((a, b) => 
+                    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                  )
                 })
-                
-                // 나중에 프로필 정보 업데이트 시도
-                setTimeout(() => {
-                  fetch(`/api/profiles/${newMsg.user_id}`)
-                    .then((res) => res.json())
-                    .then(({ profile }) => {
-                      if (profile) {
-                        setMessages((prev) =>
-                          prev.map((msg) =>
-                            msg.id === newMsg.id
-                              ? { ...msg, user: profile }
-                              : msg
-                          )
-                        )
-                      }
-                    })
-                    .catch(() => {
-                      // 프로필 조회 실패는 무시
-                    })
-                }, 1000)
               })
             }
           } else if (payload.eventType === 'UPDATE') {
-            // 업데이트된 메시지 반영
+            // 업데이트된 메시지 반영 (id 필수 확인)
             const updatedMsg = payload.new as any
+            if (!updatedMsg?.id) {
+              console.warn('UPDATE 이벤트에 id가 없습니다:', payload)
+              return
+            }
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === updatedMsg.id
@@ -269,36 +277,160 @@ export default function Chat({
               ).filter(msg => !msg.hidden)
             )
           } else if (payload.eventType === 'DELETE') {
-            // 삭제된 메시지 제거
+            // 삭제된 메시지 제거 (id 필수 확인)
             const deletedMsg = payload.old as any
+            if (!deletedMsg?.id) {
+              console.warn('DELETE 이벤트에 id가 없습니다:', payload)
+              return
+            }
             setMessages((prev) => prev.filter((msg) => msg.id !== deletedMsg.id))
           }
         }
       )
       .subscribe((status, err) => {
         console.log('실시간 구독 상태:', status, err)
+        
         if (status === 'SUBSCRIBED') {
-          console.log('✅ 실시간 구독 성공 - 메시지가 실시간으로 업데이트됩니다')
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ 실시간 구독 오류:', err)
-          console.warn('⚠️ Realtime이 활성화되지 않았을 수 있습니다. Supabase Dashboard에서 Realtime을 활성화해주세요.')
-        } else if (status === 'TIMED_OUT') {
-          console.warn('⏱️ 실시간 구독 타임아웃')
-        } else if (status === 'CLOSED') {
-          console.log('🔒 실시간 구독 종료')
+          reconnectTriesRef.current = 0
+          setFallbackOn(false)
+          console.log('✅ 실시간 구독 성공:', channelName)
+        } else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+          reconnectTriesRef.current++
+          const delay = Math.min(500 * Math.pow(2, reconnectTriesRef.current - 1), 15000)
+          
+          console.warn(`⚠️ 실시간 구독 실패 (${status}), ${delay}ms 후 재시도...`)
+          
+          // 3회 실패 시 폴백 활성화
+          if (reconnectTriesRef.current >= 3) {
+            console.warn('🔴 실시간 구독 3회 실패, 폴백 폴링 활성화')
+            setFallbackOn(true)
+          }
+          
+          // 재연결 시도
+          setTimeout(() => {
+            channel.unsubscribe().then(() => {
+              supabase.removeChannel(channel)
+              // 재구독은 useEffect 재실행으로 처리됨
+            })
+          }, delay)
         }
       })
     
     return () => {
       console.log('실시간 구독 해제:', channelName)
-      // 채널 구독 해제 및 제거
       channel.unsubscribe().then(() => {
         supabase.removeChannel(channel)
       }).catch((err) => {
         console.warn('채널 구독 해제 오류:', err)
       })
     }
-  }, [webinarId])
+  }, [webinarId, supabase, fallbackOn, currentUser?.id])
+  
+  // 헬스체크: 10초 동안 이벤트가 없으면 폴백 활성화
+  useEffect(() => {
+    const healthCheckInterval = setInterval(() => {
+      const timeSinceLastEvent = Date.now() - lastEventAt.current
+      if (timeSinceLastEvent > 10000 && !fallbackOn) {
+        console.warn('⚠️ 10초 동안 이벤트 없음, 폴백 폴링 활성화')
+        setFallbackOn(true)
+      }
+    }, 5000) // 5초마다 체크
+    
+    return () => clearInterval(healthCheckInterval)
+  }, [fallbackOn])
+  
+  // 조건부 폴백 폴링 (증분 폴링 + 지터 + 가시성/오프라인 고려)
+  useEffect(() => {
+    if (!fallbackOn) return
+    
+    // 가시성 및 온라인 상태 확인
+    const isVisible = document.visibilityState === 'visible'
+    const isOnline = navigator.onLine
+    
+    if (!isVisible || !isOnline) {
+      console.log('⏸️ 폴백 폴링 일시 정지 (가시성/오프라인)')
+      return
+    }
+    
+    console.log('🔄 폴백 폴링 시작')
+    
+    // 지터가 포함된 폴링 함수
+    const pollWithJitter = async () => {
+      try {
+        const response = await fetch(
+          `/api/webinars/${webinarId}/messages?after=${lastMessageIdRef.current}`
+        )
+        
+        if (response.ok) {
+          const { messages: fetchedMessages } = await response.json()
+          
+          if (fetchedMessages && fetchedMessages.length > 0) {
+            console.log(`📥 폴백 폴링: ${fetchedMessages.length}개 메시지 수신`)
+            
+            setMessages((prev) => {
+              const existingIds = new Set(prev.map(m => m.id))
+              const newMessages = fetchedMessages.filter((m: Message) => !existingIds.has(m.id))
+              
+              if (newMessages.length === 0) return prev
+              
+              const merged = [...prev, ...newMessages]
+              const sorted = merged.sort(
+                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              )
+              
+              // 마지막 메시지 ID 업데이트
+              lastMessageIdRef.current = Math.max(
+                ...sorted.map(m => typeof m.id === 'number' ? m.id : 0),
+                lastMessageIdRef.current
+              )
+              
+              return sorted
+            })
+            
+            // 이벤트 수신 시간 업데이트
+            lastEventAt.current = Date.now()
+          }
+        }
+      } catch (error) {
+        console.error('폴백 폴링 오류:', error)
+      }
+      
+      // 지터 적용: 기본 3초 ± 400ms 랜덤
+      const base = 3000
+      const jitter = 400 - Math.random() * 800 // -400 ~ +400ms
+      const nextDelay = base + jitter
+      
+      setTimeout(pollWithJitter, nextDelay)
+    }
+    
+    // 초기 폴링 시작
+    const timeoutId = setTimeout(pollWithJitter, 0)
+    
+    // 가시성/온라인 상태 변경 감지
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        // 복귀 시 즉시 1회 폴링
+        pollWithJitter()
+      }
+    }
+    
+    const handleOnline = () => {
+      if (document.visibilityState === 'visible') {
+        // 온라인 복귀 시 즉시 1회 폴링
+        pollWithJitter()
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
+    
+    return () => {
+      console.log('🛑 폴백 폴링 중지')
+      clearTimeout(timeoutId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [fallbackOn, webinarId])
   
   // 스크롤 자동 이동
   useEffect(() => {
@@ -316,8 +448,17 @@ export default function Chat({
       }
       
       const { messages } = await response.json()
+      const loadedMessages = messages || []
       
-      setMessages(messages || [])
+      // 마지막 메시지 ID 업데이트 (폴백 폴링용)
+      if (loadedMessages.length > 0) {
+        lastMessageIdRef.current = Math.max(
+          ...loadedMessages.map((m: Message) => typeof m.id === 'number' ? m.id : 0),
+          lastMessageIdRef.current
+        )
+      }
+      
+      setMessages(loadedMessages)
     } catch (error) {
       console.error('메시지 로드 실패:', error)
       // 폴백: 클라이언트에서 직접 조회 시도
@@ -369,9 +510,20 @@ export default function Chat({
       return
     }
     
+    // 고유 client_msg_id 생성
+    const clientMsgId = crypto.randomUUID()
+    
+    // 중복 전송 방지: 동일 client_msg_id로 이미 전송 중이면 차단
+    if (sendingClientMsgIdRef.current === clientMsgId) {
+      return
+    }
+    
+    const tempId = `temp-${clientMsgId}`
     const messageContent = newMessage.trim()
-    const tempId = `temp-${Date.now()}-${Math.random()}`
     const now = new Date().toISOString()
+    
+    // 전송 시작 표시
+    sendingClientMsgIdRef.current = clientMsgId
     
     // 프로필 정보가 없으면 먼저 조회 (Optimistic 메시지 생성 전에)
     let userProfile = currentUser
@@ -403,42 +555,78 @@ export default function Chat({
       user: (userProfile.display_name || userProfile.email) ? {
         display_name: userProfile.display_name,
         email: userProfile.email,
-      } : undefined, // 프로필 정보가 있으면 포함, 없으면 undefined
+      } : undefined,
       isOptimistic: true,
+      client_msg_id: clientMsgId,
     }
     
     setMessages((prev) => [...prev, optimisticMessage])
     setNewMessage('')
     setSending(true)
     
+    // 타임아웃 설정
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000) // 10초 타임아웃
+    
     try {
-      // API를 통해 메시지 전송 (서버 사이드에서 agency_id, client_id 자동 설정)
+      // API를 통해 메시지 전송
       const response = await fetch('/api/messages/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           webinarId,
           content: messageContent,
+          clientMsgId,
         }),
+        signal: controller.signal,
       })
       
-      const result = await response.json()
+      const result = await response.json().catch(() => ({}))
       
-      if (!response.ok || result.error) {
-        // 실패 시 Optimistic 메시지 제거
+      if (!response.ok || result?.error || !result?.success) {
+        // 실패: Optimistic 메시지 제거 및 입력 복원
         setMessages((prev) => prev.filter((msg) => msg.id !== tempId))
-        throw new Error(result.error || '메시지 전송 실패')
+        setNewMessage(messageContent)
+        throw new Error(result?.error || `HTTP ${response.status}`)
       }
       
-      // 성공 시 Optimistic 메시지는 실시간 구독에서 실제 메시지로 교체됨
-      onMessageSent?.(result.message)
-    } catch (error: any) {
-      console.error('메시지 전송 실패:', error)
-      // 실패한 메시지를 다시 입력창에 복원
-      setNewMessage(messageContent)
-      alert(error.message || '메시지 전송에 실패했습니다')
-    } finally {
+      // ✅ API 성공 즉시 UI 교체 (Realtime 대기 없이)
+      const serverMsg = result.message
+      setMessages((prev) => prev.map((msg) => {
+        if (msg.id === tempId) {
+          return {
+            ...serverMsg,
+            user: userProfile || msg.user,
+            isOptimistic: false,
+          }
+        }
+        return msg
+      }))
+      
+      // 스피너 즉시 끄기
       setSending(false)
+      sendingClientMsgIdRef.current = null // 전송 완료
+      
+      // 콜백 호출
+      onMessageSent?.(serverMsg)
+      
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        // 타임아웃: Optimistic 메시지 유지 (나중에 Realtime INSERT로 교체될 수 있음)
+        console.warn('메시지 전송 타임아웃, Realtime을 기다립니다')
+        // 스피너는 끄지만 메시지는 유지
+        setSending(false)
+        sendingClientMsgIdRef.current = null // 타임아웃 시에도 해제
+      } else {
+        // 다른 에러: Optimistic 메시지 제거 및 입력 복원
+        setMessages((prev) => prev.filter((msg) => msg.id !== tempId))
+        setNewMessage(messageContent)
+        alert(error.message || '메시지 전송에 실패했습니다')
+        setSending(false)
+        sendingClientMsgIdRef.current = null // 에러 시 해제
+      }
+    } finally {
+      clearTimeout(timeout)
     }
   }
   

@@ -6,8 +6,9 @@ import Sidebar from './Sidebar'
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isPublicPage = pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/signup')
+  const isWebinarPage = pathname.startsWith('/webinar/')
   
-  if (isPublicPage) {
+  if (isPublicPage || isWebinarPage) {
     return <>{children}</>
   }
   

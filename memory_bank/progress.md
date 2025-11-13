@@ -70,6 +70,28 @@
 - ✅ 실시간 채팅 Optimistic Update 개선 (프로필 이름 즉시 표시)
 - ✅ 채널 구독 관리 개선 (고유한 채널 이름, cleanup 로직)
 
+## [2025-01-XX] 채팅 시스템 대폭 개선
+- ✅ `client_msg_id` 기반 정확한 Optimistic Update 매칭
+- ✅ API 성공 즉시 UI 교체 (Realtime 대기 없이)
+- ✅ 중복 전송 방지 (`client_msg_id` 기반)
+- ✅ 타임아웃 처리 (10초, AbortController)
+- ✅ 조건부 폴백 폴링 (지터 ±400ms, 가시성/오프라인 고려)
+- ✅ 증분 폴링 지원 (`?after=<lastId>`)
+- ✅ Realtime 토큰 자동 주입
+- ✅ 고정 채널명 사용 (`webinar:${webinarId}:messages`)
+- ✅ DELETE/UPDATE payload 검증
+- ✅ 자동 재연결 로직 (지수 백오프)
+- ✅ 데이터베이스 마이그레이션 (`012_add_client_msg_id_to_messages.sql`)
+  - `client_msg_id` 칼럼 추가
+  - 복합 인덱스 `(webinar_id, id)` 추가
+  - 유니크 제약 조건 추가
+
+## [2025-01-XX] 웨비나 페이지 레이아웃 개선
+- ✅ 마진 제거 및 전체 너비 사용
+- ✅ 최대 너비 1600px 제한 및 가운데 정렬
+- ✅ 모바일 패딩 최소화 (px-0)
+- ✅ 웨비나 페이지에서 Sidebar 제거 (LayoutWrapper 수정)
+
 ## 남은 작업
 
 ### Phase 3 - 웨비나 및 실시간 기능 (미완료)

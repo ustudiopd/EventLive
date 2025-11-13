@@ -1,18 +1,18 @@
 # 현재 작업 상황 (Active Context)
 
 ## 1. 현재 집중하고 있는 작업  
-- **작업명**: 실시간 채팅 및 프로필 표시 개선
+- **작업명**: 채팅 시스템 안정성 및 UX 개선 완료
 - **목표**: 
-  - 실시간 채팅이 즉시 업데이트되도록 Supabase Realtime 활성화
-  - 채팅 메시지에서 사용자 이름이 정상적으로 표시되도록 개선
-  - Optimistic Update에서 프로필 이름이 즉시 표시되도록 개선
+  - 크롬에서 "전송 중..." 고착 문제 해결
+  - Realtime 연결 안정성 향상
+  - 웨비나 페이지 레이아웃 개선 (모바일 최적화)
 - **상태**: ✅ 완료
-  - Supabase Realtime 활성화 (messages, questions, quizzes 등 테이블)
-  - 프로필 정보 조회 API 엔드포인트 생성 (`/api/profiles/[userId]`)
-  - 채팅 컴포넌트에서 프로필 정보 즉시 로드 및 표시
-  - PresenceBar에서 참여자 이름 표시 개선
-  - 웨비나 입장 페이지 구현 (WebinarEntry)
-  - 웨비나 자동 등록 기능 (`/api/webinars/[webinarId]/register`)
+  - `client_msg_id` 기반 정확한 Optimistic Update 매칭 구현
+  - API 성공 즉시 UI 교체 로직 구현 (Realtime 대기 없이)
+  - 조건부 폴백 폴링 구현 (지터, 가시성/오프라인 고려)
+  - Realtime 토큰 자동 주입 구현
+  - 웨비나 페이지 레이아웃 개선 (마진 제거, 1600px 제한, 가운데 정렬)
+  - 데이터베이스 마이그레이션 완료 (`client_msg_id` 칼럼 추가)
 
 ## 2. 다음 예정 작업  
 - **우선순위 높음**: 
@@ -48,6 +48,9 @@
 - ✅ Supabase Realtime 구독 오류 해결 (Realtime 활성화 마이그레이션 적용)
 - ✅ 서버-클라이언트 바인딩 불일치 오류 해결 (고유한 채널 이름 생성)
 - ✅ Optimistic Update에서 프로필 이름 즉시 표시 (프로필 정보 사전 로드)
+- ✅ 크롬에서 "전송 중..." 고착 문제 해결 (`client_msg_id` 기반 정확한 매칭, API 즉시 교체)
+- ✅ Realtime 연결 안정성 향상 (토큰 주입, 폴백 폴링, 자동 재연결)
+- ✅ 웨비나 페이지 모바일 레이아웃 문제 해결 (마진 제거, 전체 너비 사용)
 
 ## 5. 현재 시스템 상태
 - **데이터베이스**: Supabase PostgreSQL (RLS 활성화)

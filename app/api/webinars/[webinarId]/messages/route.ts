@@ -14,6 +14,9 @@ export async function GET(
 ) {
   try {
     const { webinarId } = await params
+    const { searchParams } = new URL(req.url)
+    const afterId = searchParams.get('after') // 증분 폴링을 위한 파라미터
+    
     const { user } = await requireAuth()
     const admin = createAdminSupabase()
     
@@ -55,8 +58,8 @@ export async function GET(
       }
     }
     
-    // 메시지 조회 (프로필 정보 포함, Admin으로 RLS 우회)
-    const { data: messages, error: messagesError } = await admin
+    // 메시지 조회 쿼리 구성
+    let query = admin
       .from('messages')
       .select(`
         id,
@@ -64,6 +67,7 @@ export async function GET(
         content,
         created_at,
         hidden,
+        client_msg_id,
         profiles:user_id (
           display_name,
           email
@@ -71,8 +75,20 @@ export async function GET(
       `)
       .eq('webinar_id', webinarId)
       .eq('hidden', false)
+    
+    // 증분 폴링: afterId가 있으면 해당 ID 이후 메시지만 조회
+    if (afterId) {
+      const afterIdNum = parseInt(afterId, 10)
+      if (!isNaN(afterIdNum)) {
+        query = query.gt('id', afterIdNum)
+      }
+    }
+    
+    query = query
       .order('created_at', { ascending: false })
       .limit(100)
+    
+    const { data: messages, error: messagesError } = await query
     
     if (messagesError) {
       return NextResponse.json(
@@ -88,6 +104,7 @@ export async function GET(
         content: msg.content,
         created_at: msg.created_at,
         hidden: msg.hidden,
+        client_msg_id: msg.client_msg_id,
         user: msg.profiles || null,
       }))
     })
