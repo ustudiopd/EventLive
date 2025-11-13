@@ -8,8 +8,22 @@ export default async function AgencyDashboard({
   params: Promise<{ agencyId: string }>
 }) {
   const { agencyId } = await params
-  const { user } = await requireAgencyMember(agencyId)
+  const { user, role } = await requireAgencyMember(agencyId)
   const supabase = await createServerSupabase()
+  
+  // 프로필 정보 조회
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('display_name, email')
+    .eq('id', user.id)
+    .single()
+  
+  // 역할 한글명 매핑
+  const roleNames: Record<string, string> = {
+    owner: '소유자',
+    admin: '관리자',
+    analyst: '분석가',
+  }
   
   const { data: agency } = await supabase
     .from('agencies')
@@ -25,11 +39,18 @@ export default async function AgencyDashboard({
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            {agency?.name} 대시보드
-          </h1>
-          <p className="text-gray-600">에이전시 관리 대시보드</p>
+        <div className="mb-8 flex justify-between items-start">
+          <div>
+            <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              {agency?.name} 대시보드
+            </h1>
+            <p className="text-gray-600">에이전시 관리 대시보드</p>
+          </div>
+          <div className="bg-white px-4 py-3 rounded-lg shadow border border-gray-200">
+            <div className="text-sm text-gray-600">접속 계정</div>
+            <div className="font-semibold text-gray-900">{profile?.display_name || profile?.email || user.email}</div>
+            <div className="text-xs text-blue-600 mt-1">에이전시 {roleNames[role] || role}</div>
+          </div>
         </div>
         
         <div className="mb-8 flex gap-4 flex-wrap">

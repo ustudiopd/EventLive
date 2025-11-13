@@ -67,7 +67,7 @@ export default function PresenceBar({
       if (user) {
         // Presence에 참여
         channel
-          .on('presence', { event: 'sync' }, () => {
+          .on('presence', { event: 'sync' }, async () => {
             const state = channel.presenceState()
             const usersMap = new Map<string, PresenceUser>()
             
@@ -91,7 +91,82 @@ export default function PresenceBar({
             })
             
             // Map의 값들을 배열로 변환하고 한 번 더 중복 제거
-            const uniqueUsers = deduplicateUsers(Array.from(usersMap.values()))
+            let uniqueUsers = deduplicateUsers(Array.from(usersMap.values()))
+            
+            // 프로필 정보가 없는 사용자들의 프로필 정보 조회
+            const usersWithoutProfile = uniqueUsers.filter(u => !u.display_name && !u.email)
+            if (usersWithoutProfile.length > 0) {
+              // API를 통해 프로필 정보 조회 (RLS 우회)
+              try {
+                const response = await fetch(`/api/webinars/${webinarId}/messages`)
+                if (response.ok) {
+                  const { messages } = await response.json()
+                  // 메시지에서 프로필 정보 추출
+                  const profileMap = new Map<string, { display_name?: string; email?: string }>()
+                  messages.forEach((msg: any) => {
+                    if (msg.user && msg.user_id && !profileMap.has(msg.user_id)) {
+                      profileMap.set(msg.user_id, msg.user)
+                    }
+                  })
+                  
+                  // 프로필 정보가 없는 사용자들의 프로필 정보 보강
+                  uniqueUsers = uniqueUsers.map(user => {
+                    if (!user.display_name && !user.email) {
+                      const profile = profileMap.get(user.id)
+                      if (profile) {
+                        return {
+                          ...user,
+                          display_name: profile.display_name,
+                          email: profile.email,
+                        }
+                      }
+                      
+                      // API에서 찾지 못하면 직접 조회 시도
+                      supabase
+                        .from('profiles')
+                        .select('display_name, email')
+                        .eq('id', user.id)
+                        .single()
+                        .then(({ data: profile, error }) => {
+                          if (!error && profile) {
+                            setParticipants((prev) =>
+                              prev.map((p) =>
+                                p.id === user.id
+                                  ? { ...p, display_name: profile.display_name, email: profile.email }
+                                  : p
+                              )
+                            )
+                          }
+                        })
+                    }
+                    return user
+                  })
+                }
+              } catch (apiError) {
+                console.warn('프로필 정보 조회 실패:', apiError)
+              }
+              
+              // 프로필 정보가 없는 사용자들의 프로필 정보를 개별적으로 조회 (API 사용)
+              usersWithoutProfile.forEach((user) => {
+                // API를 통해 프로필 정보 조회 (RLS 우회)
+                fetch(`/api/profiles/${user.id}`)
+                  .then((res) => res.json())
+                  .then(({ profile }) => {
+                    if (profile) {
+                      setParticipants((prev) =>
+                        prev.map((p) =>
+                          p.id === user.id
+                            ? { ...p, display_name: profile.display_name, email: profile.email }
+                            : p
+                        )
+                      )
+                    }
+                  })
+                  .catch(() => {
+                    // 프로필 조회 실패는 무시
+                  })
+              })
+            }
             
             // 디버깅: 중복 확인
             const userIds = uniqueUsers.map(u => u.id)
@@ -104,27 +179,75 @@ export default function PresenceBar({
           })
           .on('presence', { event: 'join' }, ({ key, newPresences }) => {
             console.log('User joined:', key, newPresences)
+            // 새 사용자가 참여할 때 프로필 정보 조회
+            if (newPresences && Array.isArray(newPresences)) {
+              newPresences.forEach((presence: any) => {
+                if (presence && presence.user && presence.user.id && (!presence.user.display_name && !presence.user.email)) {
+                  fetch(`/api/profiles/${presence.user.id}`)
+                    .then((res) => res.json())
+                    .then(({ profile }) => {
+                      if (profile) {
+                        setParticipants((prev) =>
+                          prev.map((p) =>
+                            p.id === presence.user.id
+                              ? { ...p, display_name: profile.display_name, email: profile.email }
+                              : p
+                          )
+                        )
+                      }
+                    })
+                    .catch(() => {
+                      // 프로필 조회 실패는 무시
+                    })
+                }
+              })
+            }
           })
           .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
             console.log('User left:', key, leftPresences)
           })
           .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
-              // 프로필 정보 가져오기
-              const { data: profile } = await supabase
-                .from('profiles')
-                .select('id, display_name, email')
-                .eq('id', user.id)
-                .single()
-              
-              await channel.track({
-                user: {
-                  id: user.id,
-                  display_name: profile?.display_name,
-                  email: profile?.email,
-                },
-                online_at: new Date().toISOString(),
-              })
+              // 프로필 정보 가져오기 (API 사용하여 RLS 우회)
+              try {
+                const response = await fetch(`/api/profiles/${user.id}`)
+                if (response.ok) {
+                  const { profile } = await response.json()
+                  await channel.track({
+                    user: {
+                      id: user.id,
+                      display_name: profile?.display_name,
+                      email: profile?.email,
+                    },
+                    online_at: new Date().toISOString(),
+                  })
+                } else {
+                  // API 실패 시 직접 조회 시도
+                  const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('id, display_name, email')
+                    .eq('id', user.id)
+                    .single()
+                  
+                  await channel.track({
+                    user: {
+                      id: user.id,
+                      display_name: profile?.display_name,
+                      email: profile?.email,
+                    },
+                    online_at: new Date().toISOString(),
+                  })
+                }
+              } catch (error) {
+                console.error('프로필 정보 조회 실패:', error)
+                // 프로필 없이도 presence 참여
+                await channel.track({
+                  user: {
+                    id: user.id,
+                  },
+                  online_at: new Date().toISOString(),
+                })
+              }
             }
           })
       }

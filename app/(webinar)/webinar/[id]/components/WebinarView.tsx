@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { createClientSupabase } from '@/lib/supabase/client'
 import YouTubePlayer from '@/components/webinar/YouTubePlayer'
 import Chat from '@/components/webinar/Chat'
 import QA from '@/components/webinar/QA'
@@ -37,10 +38,34 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [mounted, setMounted] = useState(false)
   const fullscreenRef = useRef<HTMLDivElement>(null)
+  const supabase = createClientSupabase()
   
   useEffect(() => {
     setMounted(true)
   }, [])
+  
+  // 웨비나 등록 확인 및 자동 등록
+  useEffect(() => {
+    const registerForWebinar = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        
+        // 웨비나에 자동 등록
+        const response = await fetch(`/api/webinars/${webinar.id}/register`, {
+          method: 'POST',
+        })
+        
+        if (!response.ok) {
+          console.error('웨비나 등록 실패:', await response.text())
+        }
+      } catch (error) {
+        console.error('웨비나 등록 오류:', error)
+      }
+    }
+    
+    registerForWebinar()
+  }, [webinar.id, supabase])
   
   // 전체화면 진입
   const enterFullscreen = async () => {

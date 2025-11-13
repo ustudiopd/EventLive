@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createClientSupabase } from '@/lib/supabase/client'
 
 interface Message {
-  id: number
+  id: number | string // 임시 메시지는 문자열 ID 사용
   user_id: string
   content: string
   created_at: string
@@ -13,6 +13,7 @@ interface Message {
     display_name?: string
     email?: string
   }
+  isOptimistic?: boolean // Optimistic Update 플래그
 }
 
 interface ChatProps {
@@ -49,16 +50,70 @@ export default function Chat({
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [currentUser, setCurrentUser] = useState<{ id: string; display_name?: string; email?: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const supabase = createClientSupabase()
+  
+  // 현재 사용자 정보 로드 (API 사용하여 RLS 우회)
+  useEffect(() => {
+    const loadCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        try {
+          // API를 통해 프로필 정보 조회 (RLS 우회)
+          const response = await fetch(`/api/profiles/${user.id}`)
+          if (response.ok) {
+            const { profile } = await response.json()
+            setCurrentUser({
+              id: user.id,
+              display_name: profile?.display_name,
+              email: profile?.email,
+            })
+            return
+          }
+        } catch (apiError) {
+          console.warn('API를 통한 프로필 조회 실패:', apiError)
+        }
+        
+        // 폴백: 직접 조회 시도
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('id, display_name, email')
+            .eq('id', user.id)
+            .single()
+          
+          setCurrentUser({
+            id: user.id,
+            display_name: profile?.display_name,
+            email: profile?.email,
+          })
+        } catch (error) {
+          console.warn('직접 프로필 조회 실패:', error)
+          // 프로필 정보가 없어도 사용자 ID는 설정
+          setCurrentUser({
+            id: user.id,
+          })
+        }
+      }
+    }
+    loadCurrentUser()
+  }, [supabase])
   
   // 메시지 로드
   useEffect(() => {
     loadMessages()
     
+    // 고유한 채널 이름 생성 (타임스탬프 포함하여 중복 방지)
+    const channelName = `webinar-${webinarId}-messages-${Date.now()}`
+    
     // 실시간 구독
     const channel = supabase
-      .channel(`webinar-${webinarId}-messages`)
+      .channel(channelName, {
+        config: {
+          broadcast: { self: false }, // 자신의 메시지는 제외 (Optimistic Update로 처리)
+        },
+      })
       .on(
         'postgres_changes',
         {
@@ -68,19 +123,180 @@ export default function Chat({
           filter: `webinar_id=eq.${webinarId}`,
         },
         (payload) => {
+          console.log('실시간 메시지 이벤트:', payload.eventType, payload)
+          
           if (payload.eventType === 'INSERT') {
-            loadMessages()
+            // 새 메시지만 추가 (전체 로드 대신)
+            const newMsg = payload.new as any
+            if (newMsg && !newMsg.hidden) {
+              console.log('새 메시지 수신:', newMsg)
+              
+              // 프로필 정보를 API로 빠르게 조회
+              const fetchProfile = async () => {
+                try {
+                  // API를 통해 프로필 정보 조회 (가장 빠른 방법)
+                  const response = await fetch(`/api/profiles/${newMsg.user_id}`)
+                  if (response.ok) {
+                    const { profile } = await response.json()
+                    return profile
+                  }
+                } catch (apiError) {
+                  console.warn('API를 통한 프로필 조회 실패:', apiError)
+                }
+                
+                // 폴백: 직접 조회
+                try {
+                  const { data: profile, error: profileError } = await supabase
+                    .from('profiles')
+                    .select('display_name, email')
+                    .eq('id', newMsg.user_id)
+                    .single()
+                  
+                  if (!profileError && profile) {
+                    return profile
+                  }
+                } catch (error) {
+                  console.warn('직접 프로필 조회 실패:', error)
+                }
+                
+                return null
+              }
+              
+              // 프로필 정보를 빠르게 조회하고 메시지 추가
+              fetchProfile().then((profile) => {
+                setMessages((prev) => {
+                  // 이미 존재하는 메시지인지 확인 (중복 방지)
+                  const exists = prev.some(m => m.id === newMsg.id || (typeof m.id === 'string' && m.id.startsWith('temp-') && m.user_id === newMsg.user_id && m.content === newMsg.content))
+                  if (exists) {
+                    // Optimistic 메시지가 있으면 실제 메시지로 교체
+                    return prev.map((msg) => {
+                      if (msg.isOptimistic && msg.user_id === newMsg.user_id && msg.content === newMsg.content) {
+                        return {
+                          id: newMsg.id,
+                          user_id: newMsg.user_id,
+                          content: newMsg.content,
+                          created_at: newMsg.created_at,
+                          hidden: newMsg.hidden,
+                          user: profile || msg.user, // 프로필 정보
+                          isOptimistic: false,
+                        }
+                      }
+                      return msg
+                    }).filter(msg => !msg.isOptimistic || msg.user_id !== newMsg.user_id || msg.content !== newMsg.content)
+                  }
+                  
+                  // Optimistic 메시지 찾기 및 제거
+                  const optimisticIndex = prev.findIndex(
+                    m => m.isOptimistic && 
+                    m.user_id === newMsg.user_id && 
+                    m.content === newMsg.content
+                  )
+                  
+                  let filtered = prev
+                  if (optimisticIndex !== -1) {
+                    // Optimistic 메시지 제거
+                    filtered = prev.filter((_, idx) => idx !== optimisticIndex)
+                  }
+                  
+                  // 새 메시지 추가
+                  return [...filtered, {
+                    id: newMsg.id,
+                    user_id: newMsg.user_id,
+                    content: newMsg.content,
+                    created_at: newMsg.created_at,
+                    hidden: newMsg.hidden,
+                    user: profile, // 프로필 정보
+                  }].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                })
+              }).catch((error) => {
+                console.error('프로필 조회 오류:', error)
+                // 프로필 없이도 메시지 추가 (나중에 프로필 정보 업데이트)
+                setMessages((prev) => {
+                  const exists = prev.some(m => m.id === newMsg.id)
+                  if (exists) return prev
+                  
+                  // Optimistic 메시지 찾기 및 제거
+                  const optimisticIndex = prev.findIndex(
+                    m => m.isOptimistic && 
+                    m.user_id === newMsg.user_id && 
+                    m.content === newMsg.content
+                  )
+                  
+                  let filtered = prev
+                  if (optimisticIndex !== -1) {
+                    filtered = prev.filter((_, idx) => idx !== optimisticIndex)
+                  }
+                  
+                  return [...filtered, {
+                    id: newMsg.id,
+                    user_id: newMsg.user_id,
+                    content: newMsg.content,
+                    created_at: newMsg.created_at,
+                    hidden: newMsg.hidden,
+                    user: undefined,
+                  }].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                })
+                
+                // 나중에 프로필 정보 업데이트 시도
+                setTimeout(() => {
+                  fetch(`/api/profiles/${newMsg.user_id}`)
+                    .then((res) => res.json())
+                    .then(({ profile }) => {
+                      if (profile) {
+                        setMessages((prev) =>
+                          prev.map((msg) =>
+                            msg.id === newMsg.id
+                              ? { ...msg, user: profile }
+                              : msg
+                          )
+                        )
+                      }
+                    })
+                    .catch(() => {
+                      // 프로필 조회 실패는 무시
+                    })
+                }, 1000)
+              })
+            }
           } else if (payload.eventType === 'UPDATE') {
-            loadMessages()
+            // 업데이트된 메시지 반영
+            const updatedMsg = payload.new as any
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === updatedMsg.id
+                  ? { ...msg, ...updatedMsg, hidden: updatedMsg.hidden }
+                  : msg
+              ).filter(msg => !msg.hidden)
+            )
           } else if (payload.eventType === 'DELETE') {
-            loadMessages()
+            // 삭제된 메시지 제거
+            const deletedMsg = payload.old as any
+            setMessages((prev) => prev.filter((msg) => msg.id !== deletedMsg.id))
           }
         }
       )
-      .subscribe()
+      .subscribe((status, err) => {
+        console.log('실시간 구독 상태:', status, err)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ 실시간 구독 성공 - 메시지가 실시간으로 업데이트됩니다')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ 실시간 구독 오류:', err)
+          console.warn('⚠️ Realtime이 활성화되지 않았을 수 있습니다. Supabase Dashboard에서 Realtime을 활성화해주세요.')
+        } else if (status === 'TIMED_OUT') {
+          console.warn('⏱️ 실시간 구독 타임아웃')
+        } else if (status === 'CLOSED') {
+          console.log('🔒 실시간 구독 종료')
+        }
+      })
     
     return () => {
-      channel.unsubscribe()
+      console.log('실시간 구독 해제:', channelName)
+      // 채널 구독 해제 및 제거
+      channel.unsubscribe().then(() => {
+        supabase.removeChannel(channel)
+      }).catch((err) => {
+        console.warn('채널 구독 해제 오류:', err)
+      })
     }
   }, [webinarId])
   
@@ -92,38 +308,53 @@ export default function Chat({
   const loadMessages = async () => {
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('messages')
-        .select(`
-          id,
-          user_id,
-          content,
-          created_at,
-          hidden,
-          profiles:user_id (
-            display_name,
-            email
-          )
-        `)
-        .eq('webinar_id', webinarId)
-        .eq('hidden', false)
-        .order('created_at', { ascending: false })
-        .limit(maxMessages)
+      // API를 통해 메시지 조회 (프로필 정보 포함, RLS 우회)
+      const response = await fetch(`/api/webinars/${webinarId}/messages`)
       
-      if (error) throw error
+      if (!response.ok) {
+        throw new Error('메시지 조회 실패')
+      }
       
-      const formattedMessages = (data || []).map((msg: any) => ({
-        id: msg.id,
-        user_id: msg.user_id,
-        content: msg.content,
-        created_at: msg.created_at,
-        hidden: msg.hidden,
-        user: msg.profiles,
-      })).reverse()
+      const { messages } = await response.json()
       
-      setMessages(formattedMessages)
+      setMessages(messages || [])
     } catch (error) {
       console.error('메시지 로드 실패:', error)
+      // 폴백: 클라이언트에서 직접 조회 시도
+      try {
+        const { data, error: fallbackError } = await supabase
+          .from('messages')
+          .select(`
+            id,
+            user_id,
+            content,
+            created_at,
+            hidden,
+            profiles:user_id (
+              display_name,
+              email
+            )
+          `)
+          .eq('webinar_id', webinarId)
+          .eq('hidden', false)
+          .order('created_at', { ascending: false })
+          .limit(maxMessages)
+        
+        if (!fallbackError && data) {
+          const formattedMessages = (data || []).map((msg: any) => ({
+            id: msg.id,
+            user_id: msg.user_id,
+            content: msg.content,
+            created_at: msg.created_at,
+            hidden: msg.hidden,
+            user: msg.profiles || null,
+          })).reverse()
+          
+          setMessages(formattedMessages)
+        }
+      } catch (fallbackError) {
+        console.error('폴백 메시지 로드 실패:', fallbackError)
+      }
     } finally {
       setLoading(false)
     }
@@ -133,34 +364,78 @@ export default function Chat({
     e.preventDefault()
     if (!newMessage.trim() || sending || !canSend) return
     
-    setSending(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        alert('로그인이 필요합니다')
-        return
+    if (!currentUser) {
+      alert('로그인이 필요합니다')
+      return
+    }
+    
+    const messageContent = newMessage.trim()
+    const tempId = `temp-${Date.now()}-${Math.random()}`
+    const now = new Date().toISOString()
+    
+    // 프로필 정보가 없으면 먼저 조회 (Optimistic 메시지 생성 전에)
+    let userProfile = currentUser
+    if (!currentUser.display_name && !currentUser.email) {
+      try {
+        const response = await fetch(`/api/profiles/${currentUser.id}`)
+        if (response.ok) {
+          const { profile } = await response.json()
+          userProfile = {
+            id: currentUser.id,
+            display_name: profile?.display_name,
+            email: profile?.email,
+          }
+          // currentUser 상태 업데이트
+          setCurrentUser(userProfile)
+        }
+      } catch (error) {
+        console.warn('프로필 정보 조회 실패:', error)
       }
-      
+    }
+    
+    // Optimistic Update: 즉시 UI에 임시 메시지 추가 (프로필 정보 포함)
+    const optimisticMessage: Message = {
+      id: tempId,
+      user_id: currentUser.id,
+      content: messageContent,
+      created_at: now,
+      hidden: false,
+      user: (userProfile.display_name || userProfile.email) ? {
+        display_name: userProfile.display_name,
+        email: userProfile.email,
+      } : undefined, // 프로필 정보가 있으면 포함, 없으면 undefined
+      isOptimistic: true,
+    }
+    
+    setMessages((prev) => [...prev, optimisticMessage])
+    setNewMessage('')
+    setSending(true)
+    
+    try {
       // API를 통해 메시지 전송 (서버 사이드에서 agency_id, client_id 자동 설정)
       const response = await fetch('/api/messages/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           webinarId,
-          content: newMessage.trim(),
+          content: messageContent,
         }),
       })
       
       const result = await response.json()
       
       if (!response.ok || result.error) {
+        // 실패 시 Optimistic 메시지 제거
+        setMessages((prev) => prev.filter((msg) => msg.id !== tempId))
         throw new Error(result.error || '메시지 전송 실패')
       }
       
-      setNewMessage('')
+      // 성공 시 Optimistic 메시지는 실시간 구독에서 실제 메시지로 교체됨
       onMessageSent?.(result.message)
     } catch (error: any) {
       console.error('메시지 전송 실패:', error)
+      // 실패한 메시지를 다시 입력창에 복원
+      setNewMessage(messageContent)
       alert(error.message || '메시지 전송에 실패했습니다')
     } finally {
       setSending(false)
@@ -193,7 +468,9 @@ export default function Chat({
             return (
               <div
                 key={message.id}
-                className="hover:bg-gray-50 p-2 rounded-lg cursor-pointer transition-colors"
+                className={`hover:bg-gray-50 p-2 rounded-lg cursor-pointer transition-colors ${
+                  message.isOptimistic ? 'opacity-70' : ''
+                }`}
                 onClick={() => onMessageClick?.(message)}
               >
                 <div className="flex items-start gap-2">
@@ -205,6 +482,9 @@ export default function Chat({
                       <span className="text-xs text-gray-500">
                         {formatTime(message.created_at)}
                       </span>
+                      {message.isOptimistic && (
+                        <span className="text-xs text-blue-500">전송 중...</span>
+                      )}
                     </div>
                     <p className="text-sm text-gray-700 break-words">{message.content}</p>
                   </div>

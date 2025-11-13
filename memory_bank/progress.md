@@ -25,17 +25,24 @@
 - ✅ 웨비나 수정 (`/api/webinars/[webinarId]` PUT)
 - ✅ 웨비나 삭제 (`/api/webinars/[webinarId]` DELETE)
 - ✅ 웨비나 목록 (`/client/[clientId]/webinars`, `/api/webinars/list`)
-- ✅ 웨비나 시청 페이지 (`/webinar/[id]`)
+- ✅ 웨비나 입장 페이지 (`/webinar/[id]`, `components/WebinarEntry.tsx`)
+  - ✅ 로그인/회원가입 폼
+  - ✅ 이메일 인증 안내 모달
+  - ✅ 자동 리다이렉트 (인증 완료 후)
+- ✅ 웨비나 시청 페이지 (`/webinar/[id]/live`)
   - ✅ YouTube 임베드 플레이어
   - ✅ 전체화면 기능 (브라우저 네이티브 Fullscreen API)
   - ✅ 반응형 레이아웃 (모바일: 영상 → 참여자 → 채팅 순서)
   - ✅ 4K 모니터 지원 (전체 너비 레이아웃, 채팅 패널 최대 너비 제한)
   - ✅ 세션 소개 섹션 (리액션 패널 대체)
+  - ✅ 웨비나 자동 등록 (`/api/webinars/[webinarId]/register`)
 - ✅ 실시간 채팅 (`components/webinar/Chat.tsx`)
   - ✅ 메시지 전송 (`/api/messages/create`)
-  - ✅ 실시간 메시지 구독
+  - ✅ Supabase Realtime 활성화 및 구독
+  - ✅ Optimistic Update (프로필 이름 즉시 표시)
   - ✅ 메시지 DB 저장
   - ✅ 메시지 모더레이션 (숨김 기능)
+  - ✅ 프로필 정보 조회 API (`/api/webinars/[webinarId]/messages`)
 - ✅ Q&A 시스템 (`components/webinar/QA.tsx`)
   - ✅ 질문 등록 (`/api/questions/create`)
   - ✅ 질문 모더레이션 (`/api/questions/[questionId]` PATCH)
@@ -44,6 +51,7 @@
   - ✅ 참여자 수 표시
   - ✅ 참여자 목록 표시
   - ✅ 중복 제거 로직 (Map 기반)
+  - ✅ 프로필 정보 표시 개선 (API를 통한 프로필 조회)
   - ✅ 타이핑 표시 구조 (실제 동작은 추후 구현)
 - ✅ 운영 콘솔 (`/webinar/[id]/console`)
   - ✅ Q&A 모더레이션 (`components/console/QAModeration.tsx`)
@@ -56,6 +64,11 @@
 - ✅ 에이전시 멤버 권한 확장 (클라이언트 대시보드 접근, 웨비나 생성 권한)
 - ✅ 4K 모니터 레이아웃 최적화
 - ✅ 모바일 반응형 레이아웃 개선
+- ✅ Supabase Realtime 활성화 (messages, questions, quizzes 등 테이블)
+- ✅ 프로필 정보 조회 API 엔드포인트 생성 (`/api/profiles/[userId]`)
+- ✅ 프로필 RLS 정책 개선 (같은 웨비나/클라이언트/에이전시 사용자 프로필 읽기 허용)
+- ✅ 실시간 채팅 Optimistic Update 개선 (프로필 이름 즉시 표시)
+- ✅ 채널 구독 관리 개선 (고유한 채널 이름, cleanup 로직)
 
 ## 남은 작업
 

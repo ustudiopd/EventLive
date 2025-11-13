@@ -108,9 +108,11 @@
 ## 5. 실시간 기능
 
 ### Supabase Realtime 구독
-- **DB Changes**: `messages`, `questions` 테이블 변경 구독
+- **DB Changes**: `messages`, `questions`, `quizzes`, `quiz_responses`, `draws`, `winners`, `reactions` 테이블 변경 구독
+- **Realtime 활성화**: `supabase_realtime` publication에 테이블 추가됨
 - **Presence**: `presence:webinar-{id}` 채널로 참여자 추적
 - **Broadcast**: 타이핑, 알림 등 휘발 이벤트 (미구현)
+- **채널 관리**: 고유한 채널 이름 생성 (타임스탬프 포함), cleanup 로직 개선
 
 ## 6. 미구현 기능 (요구사항)
 

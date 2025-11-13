@@ -19,11 +19,16 @@ export default function WebinarsPage() {
       if (!clientId) return
       
       try {
-        // 클라이언트 정보 조회
-        const clientResponse = await fetch(`/api/clients/${clientId}`)
-        if (clientResponse.ok) {
-          const clientData = await clientResponse.json()
-          setClient(clientData.client)
+        // 클라이언트 정보 조회 (실패해도 계속 진행)
+        try {
+          const clientResponse = await fetch(`/api/clients/${clientId}`)
+          if (clientResponse.ok) {
+            const clientData = await clientResponse.json()
+            setClient(clientData.client)
+          }
+        } catch (clientErr) {
+          console.warn('클라이언트 정보 조회 실패:', clientErr)
+          // 클라이언트 정보 조회 실패는 무시하고 계속 진행
         }
         
         // 웨비나 목록 조회 (서버 사이드 API 사용)

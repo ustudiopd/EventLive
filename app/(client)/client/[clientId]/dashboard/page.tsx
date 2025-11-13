@@ -8,8 +8,24 @@ export default async function ClientDashboard({
   params: Promise<{ clientId: string }>
 }) {
   const { clientId } = await params
-  const { user } = await requireClientMember(clientId)
+  const { user, role } = await requireClientMember(clientId)
   const supabase = await createServerSupabase()
+  
+  // 프로필 정보 조회
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('display_name, email')
+    .eq('id', user.id)
+    .single()
+  
+  // 역할 한글명 매핑
+  const roleNames: Record<string, string> = {
+    owner: '소유자',
+    admin: '관리자',
+    operator: '운영자',
+    analyst: '분석가',
+    viewer: '조회자',
+  }
   
   const { data: client } = await supabase
     .from('clients')
@@ -26,12 +42,19 @@ export default async function ClientDashboard({
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              {client?.name} 대시보드
-            </h1>
-            <p className="text-gray-600">웨비나를 생성하고 관리하세요</p>
+        <div className="mb-8">
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                {client?.name} 대시보드
+              </h1>
+              <p className="text-gray-600">웨비나를 생성하고 관리하세요</p>
+            </div>
+            <div className="bg-white px-4 py-3 rounded-lg shadow border border-gray-200">
+              <div className="text-sm text-gray-600">접속 계정</div>
+              <div className="font-semibold text-gray-900">{profile?.display_name || profile?.email || user.email}</div>
+              <div className="text-xs text-blue-600 mt-1">클라이언트 {roleNames[role] || role}</div>
+            </div>
           </div>
           <div className="flex gap-3">
             <Link 
