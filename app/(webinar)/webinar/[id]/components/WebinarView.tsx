@@ -207,31 +207,31 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 w-full">
       {/* 헤더 */}
       <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40 w-full">
-        <div className="w-full mx-auto px-4 py-3 lg:py-4">
+        <div className="w-full mx-auto px-3 py-2 sm:px-4 sm:py-3 lg:py-4">
           <div className="flex items-center justify-between max-w-[100%] mx-auto">
             <div className="flex-1 min-w-0">
-              <h1 className="text-lg lg:text-2xl font-bold text-gray-900 truncate">{webinar.title}</h1>
+              <h1 className="text-base sm:text-lg lg:text-2xl font-bold text-gray-900 truncate">{webinar.title}</h1>
               {webinar.description && (
-                <p className="text-xs lg:text-sm text-gray-600 mt-1 line-clamp-1">{webinar.description}</p>
+                <p className="text-xs lg:text-sm text-gray-600 mt-0.5 sm:mt-1 line-clamp-1">{webinar.description}</p>
               )}
             </div>
             {webinar.clients?.logo_url && (
               <img 
                 src={webinar.clients.logo_url} 
                 alt={webinar.clients.name}
-                className="h-8 lg:h-12 w-auto ml-2 flex-shrink-0"
+                className="h-6 sm:h-8 lg:h-12 w-auto ml-2 flex-shrink-0"
               />
             )}
           </div>
         </div>
       </header>
       
-      <div className="w-full mx-auto px-4 py-4 lg:py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 max-w-[100%] mx-auto">
+      <div className="w-full mx-auto px-2 sm:px-3 lg:px-4 py-2 sm:py-3 lg:py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3 lg:gap-6 max-w-[100%] mx-auto">
           {/* 메인 영역 - YouTube 플레이어 */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="lg:col-span-2 space-y-2 sm:space-y-3 lg:space-y-4">
             {/* YouTube 플레이어 */}
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden w-full relative group">
+            <div className="bg-white rounded-lg sm:rounded-xl shadow-lg overflow-hidden w-full relative group">
               <div className="relative w-full pb-[56.25%] bg-black">
                 <div className="absolute top-0 left-0 w-full h-full">
                   <YouTubePlayer
@@ -256,32 +256,32 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
               </button>
             </div>
             
-            {/* 세션 소개 */}
-            <div className="bg-white rounded-xl shadow-lg p-6 hidden lg:block">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">세션 소개</h3>
+            {/* 세션 소개 - 모바일에서도 표시 */}
+            <div className="bg-white rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-4 lg:p-6">
+              <h3 className="text-sm sm:text-base lg:text-lg font-semibold text-gray-900 mb-2 sm:mb-3 lg:mb-4">세션 소개</h3>
               {webinar.description ? (
                 <div className="prose prose-sm max-w-none">
-                  <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
+                  <p className="text-xs sm:text-sm lg:text-base text-gray-700 whitespace-pre-wrap leading-relaxed">
                     {webinar.description}
                   </p>
                 </div>
               ) : (
-                <p className="text-gray-500 italic">세션 소개가 없습니다.</p>
+                <p className="text-xs sm:text-sm text-gray-500 italic">세션 소개가 없습니다.</p>
               )}
               {webinar.start_time && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200">
+                  <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                    <svg className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    <span>시작 시간: {new Date(webinar.start_time).toLocaleString('ko-KR')}</span>
+                    <span className="truncate">시작: {new Date(webinar.start_time).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
                   {webinar.end_time && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600 mt-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-gray-600 mt-1.5 sm:mt-2">
+                      <svg className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
-                      <span>종료 시간: {new Date(webinar.end_time).toLocaleString('ko-KR')}</span>
+                      <span className="truncate">종료: {new Date(webinar.end_time).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                   )}
                 </div>
@@ -292,16 +292,17 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
             <PresenceBar
               webinarId={webinar.id}
               showTyping={true}
+              className="text-xs sm:text-sm"
             />
             
             {/* 모바일 채팅/Q&A - 영상 아래 순서대로 */}
             <div className="lg:hidden">
-              <div className="bg-white rounded-xl shadow-lg overflow-hidden h-[500px] flex flex-col">
+              <div className="bg-white rounded-lg sm:rounded-xl shadow-lg overflow-hidden h-[50vh] min-h-[350px] max-h-[500px] flex flex-col">
                 {/* 탭 */}
                 <div className="border-b border-gray-200 flex flex-shrink-0">
                   <button
                     onClick={() => setActiveTab('chat')}
-                    className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    className={`flex-1 px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-medium transition-colors ${
                       activeTab === 'chat'
                         ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
                         : 'text-gray-600'
@@ -311,7 +312,7 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
                   </button>
                   <button
                     onClick={() => setActiveTab('qa')}
-                    className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    className={`flex-1 px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-medium transition-colors ${
                       activeTab === 'qa'
                         ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
                         : 'text-gray-600'

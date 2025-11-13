@@ -450,11 +450,11 @@ export default function Chat({
   return (
     <div className={`flex flex-col h-full ${className}`}>
       {/* 메시지 목록 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 space-y-2 sm:space-y-3">
         {loading && messages.length === 0 ? (
-          <div className="text-center text-gray-500 py-8">메시지를 불러오는 중...</div>
+          <div className="text-center text-gray-500 py-8 text-xs sm:text-sm">메시지를 불러오는 중...</div>
         ) : messages.length === 0 ? (
-          <div className="text-center text-gray-500 py-8">아직 메시지가 없습니다</div>
+          <div className="text-center text-gray-500 py-8 text-xs sm:text-sm">아직 메시지가 없습니다</div>
         ) : (
           messages.map((message) => {
             if (renderMessage) {
@@ -468,25 +468,25 @@ export default function Chat({
             return (
               <div
                 key={message.id}
-                className={`hover:bg-gray-50 p-2 rounded-lg cursor-pointer transition-colors ${
+                className={`hover:bg-gray-50 p-1.5 sm:p-2 rounded-lg cursor-pointer transition-colors ${
                   message.isOptimistic ? 'opacity-70' : ''
                 }`}
                 onClick={() => onMessageClick?.(message)}
               >
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-1.5 sm:gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-gray-800">
+                    <div className="flex items-center gap-1 sm:gap-2 mb-0.5 sm:mb-1 flex-wrap">
+                      <span className="text-xs sm:text-sm font-semibold text-gray-800">
                         {message.user?.display_name || message.user?.email || '익명'}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-[10px] sm:text-xs text-gray-500">
                         {formatTime(message.created_at)}
                       </span>
                       {message.isOptimistic && (
-                        <span className="text-xs text-blue-500">전송 중...</span>
+                        <span className="text-[10px] sm:text-xs text-blue-500">전송 중...</span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-700 break-words">{message.content}</p>
+                    <p className="text-xs sm:text-sm text-gray-700 break-words leading-relaxed">{message.content}</p>
                   </div>
                 </div>
               </div>
@@ -498,26 +498,26 @@ export default function Chat({
       
       {/* 메시지 입력 */}
       {canSend && (
-        <form onSubmit={handleSend} className="border-t border-gray-200 p-4">
-          <div className="flex gap-2">
+        <form onSubmit={handleSend} className="border-t border-gray-200 p-2 sm:p-3 lg:p-4 flex-shrink-0">
+          <div className="flex gap-1.5 sm:gap-2">
             <input
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder="메시지를 입력하세요..."
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="flex-1 px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               maxLength={500}
               disabled={sending}
             />
             <button
               type="submit"
               disabled={!newMessage.trim() || sending}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+              className="px-3 sm:px-4 lg:px-6 py-1.5 sm:py-2 text-xs sm:text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium whitespace-nowrap"
             >
               {sending ? '전송 중...' : '전송'}
             </button>
           </div>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1">
             {newMessage.length}/500
           </p>
         </form>
