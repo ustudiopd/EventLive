@@ -201,11 +201,17 @@ export default function WebinarsPage() {
                                 href={`/webinar/${webinar.id}`}
                                 className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
                               >
-                                보기
+                                웨비나링크
+                              </Link>
+                              <Link 
+                                href={`/webinar/${webinar.id}/live?admin=true`}
+                                className="text-green-600 hover:text-green-800 font-medium hover:underline"
+                              >
+                                관리자 접속
                               </Link>
                               <Link 
                                 href={`/webinar/${webinar.id}/console`}
-                                className="text-green-600 hover:text-green-800 font-medium hover:underline"
+                                className="text-purple-600 hover:text-purple-800 font-medium hover:underline"
                               >
                                 콘솔
                               </Link>

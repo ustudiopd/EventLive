@@ -15,21 +15,38 @@ export async function GET(
   try {
     const { webinarId } = await params
     const { searchParams } = new URL(req.url)
-    const afterId = searchParams.get('after') // 증분 폴링을 위한 파라미터
+    
+    // 커서 기반 페이지네이션 파라미터
+    const beforeTs = searchParams.get('beforeTs') // ISO 8601 타임스탬프
+    const beforeId = searchParams.get('beforeId') // 메시지 ID
+    const limitParam = searchParams.get('limit')
+    
+    // 증분 폴링 파라미터 (하위 호환성)
+    const afterId = searchParams.get('after')
+    
+    // limit 검증 및 클램프 (10~100)
+    // limitParam이 없으면 기본값 50, 있으면 파싱 후 10~100 사이로 제한
+    let limit = 50
+    if (limitParam) {
+      const parsed = parseInt(limitParam, 10)
+      if (!isNaN(parsed)) {
+        limit = Math.min(Math.max(parsed, 10), 100)
+      }
+    }
     
     const { user } = await requireAuth()
     const admin = createAdminSupabase()
     
-    // 웨비나 존재 확인
+    // 웨비나 존재 확인 (agency_id, client_id도 함께 조회)
     const { data: webinar, error: webinarError } = await admin
       .from('webinars')
-      .select('id')
+      .select('id, agency_id, client_id')
       .eq('id', webinarId)
       .single()
     
     if (webinarError || !webinar) {
       return NextResponse.json(
-        { error: 'Webinar not found' },
+        { success: false, error: 'Webinar not found' },
         { status: 404 }
       )
     }
@@ -58,7 +75,7 @@ export async function GET(
       }
     }
     
-    // 메시지 조회 쿼리 구성
+    // 프로필 정보는 별도 조회 (RLS 우회)
     let query = admin
       .from('messages')
       .select(`
@@ -67,50 +84,205 @@ export async function GET(
         content,
         created_at,
         hidden,
-        client_msg_id,
-        profiles:user_id (
-          display_name,
-          email
-        )
+        client_msg_id
       `)
       .eq('webinar_id', webinarId)
       .eq('hidden', false)
     
-    // 증분 폴링: afterId가 있으면 해당 ID 이후 메시지만 조회
-    if (afterId) {
+    // 커서 기반 페이지네이션: 과거 메시지 더 불러오기
+    if (beforeTs && beforeId) {
+      const beforeTsDate = new Date(beforeTs)
+      const beforeIdNum = parseInt(beforeId, 10)
+      
+      if (!isNaN(beforeTsDate.getTime()) && !isNaN(beforeIdNum)) {
+        // (created_at, id) < (beforeTs, beforeId) 조건
+        // Supabase는 복합 조건을 직접 지원하지 않으므로,
+        // created_at < beforeTs OR (created_at = beforeTs AND id < beforeId) 조건을
+        // created_at <= beforeTs로 필터링 후 클라이언트에서 id로 추가 필터링
+        // 또는 더 정확하게는 created_at < beforeTs로 필터링 (대부분의 경우 충분)
+        // 같은 시간대의 메시지가 많을 경우를 대비해 약간의 여유를 둠
+        query = query.lt('created_at', beforeTs)
+      }
+    } else if (afterId) {
+      // 증분 폴링 (하위 호환성): afterId 이후 메시지만 조회
       const afterIdNum = parseInt(afterId, 10)
       if (!isNaN(afterIdNum)) {
         query = query.gt('id', afterIdNum)
       }
     }
     
+    // 정렬: created_at DESC, id DESC (인덱스와 일치)
     query = query
       .order('created_at', { ascending: false })
-      .limit(100)
+      .order('id', { ascending: false })
+      .limit(limit)
     
     const { data: messages, error: messagesError } = await query
     
     if (messagesError) {
       return NextResponse.json(
-        { error: messagesError.message },
+        { success: false, error: messagesError.message },
         { status: 500 }
       )
     }
     
-    return NextResponse.json({ 
-      messages: (messages || []).reverse().map((msg: any) => ({
+    const loadedMessages = messages || []
+    
+    // 사용자 ID 목록 수집
+    const userIds = [...new Set(loadedMessages.map((m: any) => m.user_id))]
+    
+    // 프로필 정보 조회 (RLS 우회, is_super_admin 포함)
+    const profilesMap = new Map()
+    if (userIds.length > 0) {
+      const { data: profiles } = await admin
+        .from('profiles')
+        .select('id, display_name, email, is_super_admin')
+        .in('id', userIds)
+      
+      if (profiles) {
+        profiles.forEach((p: any) => {
+          profilesMap.set(p.id, p)
+        })
+      }
+    }
+    
+    // 각 사용자의 관리자 여부 확인 (슈퍼 관리자, 에이전시 멤버, 클라이언트 멤버)
+    const adminUsersSet = new Set<string>()
+    
+    // 1. 슈퍼 관리자 확인
+    profilesMap.forEach((profile, userId) => {
+      if (profile.is_super_admin) {
+        adminUsersSet.add(userId)
+      }
+    })
+    
+    // 2. 에이전시 멤버십 확인
+    if (userIds.length > 0 && webinar.agency_id) {
+      const { data: agencyMembers } = await admin
+        .from('agency_members')
+        .select('user_id')
+        .eq('agency_id', webinar.agency_id)
+        .in('user_id', userIds)
+      
+      if (agencyMembers) {
+        agencyMembers.forEach((m: any) => {
+          adminUsersSet.add(m.user_id)
+        })
+      }
+    }
+    
+    // 3. 클라이언트 멤버십 확인
+    if (userIds.length > 0 && webinar.client_id) {
+      const { data: clientMembers } = await admin
+        .from('client_members')
+        .select('user_id')
+        .eq('client_id', webinar.client_id)
+        .in('user_id', userIds)
+      
+      if (clientMembers) {
+        clientMembers.forEach((m: any) => {
+          adminUsersSet.add(m.user_id)
+        })
+      }
+    }
+    
+    // 각 사용자의 웨비나 등록 정보 조회 (참여자 여부 확인)
+    const registrationsMap = new Map()
+    if (userIds.length > 0) {
+      const { data: registrations } = await admin
+        .from('registrations')
+        .select('user_id, role')
+        .eq('webinar_id', webinarId)
+        .in('user_id', userIds)
+      
+      if (registrations) {
+        registrations.forEach((r: any) => {
+          registrationsMap.set(r.user_id, r.role)
+        })
+      }
+    }
+    
+    // 메시지와 프로필 정보 결합 (관리자이거나 참여자가 아니면 "관리자"로 표시)
+    const formattedMessages = loadedMessages.map((msg: any) => {
+      const profile = profilesMap.get(msg.user_id) || null
+      const registrationRole = registrationsMap.get(msg.user_id)
+      
+      // 관리자 여부 확인 (슈퍼 관리자, 에이전시 멤버, 클라이언트 멤버)
+      const isAdmin = adminUsersSet.has(msg.user_id)
+      
+      // 참여자(attendee)가 아니면 "관리자"로 표시
+      const isParticipant = registrationRole === 'attendee'
+      const displayName = isAdmin || !isParticipant
+        ? '관리자'
+        : (profile?.display_name || profile?.email || '익명')
+      
+      return {
         id: msg.id,
         user_id: msg.user_id,
         content: msg.content,
         created_at: msg.created_at,
         hidden: msg.hidden,
         client_msg_id: msg.client_msg_id,
-        user: msg.profiles || null,
-      }))
+        user: profile ? {
+          ...profile,
+          display_name: displayName,
+        } : {
+          id: msg.user_id,
+          display_name: displayName,
+          email: null,
+        },
+      }
+    })
+    
+    // 응답: 오름차순으로 반환 (렌더링 단순화)
+    // DB에서는 DESC로 가져왔으므로 reverse
+    const sortedMessages = formattedMessages.reverse()
+    
+    // 커서 필터링: beforeTs와 beforeId가 모두 제공된 경우,
+    // 같은 시간대의 메시지 중 beforeId보다 작은 것만 포함
+    let filteredMessages = sortedMessages
+    if (beforeTs && beforeId) {
+      const beforeTsDate = new Date(beforeTs)
+      const beforeIdNum = parseInt(beforeId, 10)
+      if (!isNaN(beforeTsDate.getTime()) && !isNaN(beforeIdNum)) {
+        filteredMessages = sortedMessages.filter((msg) => {
+          const msgDate = new Date(msg.created_at)
+          const msgId = typeof msg.id === 'number' ? msg.id : parseInt(String(msg.id), 10)
+          
+          // created_at < beforeTs OR (created_at = beforeTs AND id < beforeId)
+          if (msgDate.getTime() < beforeTsDate.getTime()) {
+            return true
+          }
+          if (msgDate.getTime() === beforeTsDate.getTime() && msgId < beforeIdNum) {
+            return true
+          }
+          return false
+        })
+      }
+    }
+    
+    // 다음 커서 계산 (가장 오래된 메시지의 created_at, id)
+    let nextCursor: { beforeTs: string; beforeId: number } | null = null
+    if (filteredMessages.length > 0) {
+      const oldestMsg = filteredMessages[0]
+      nextCursor = {
+        beforeTs: oldestMsg.created_at,
+        beforeId: typeof oldestMsg.id === 'number' ? oldestMsg.id : parseInt(String(oldestMsg.id), 10),
+      }
+    }
+    
+    // hasMore: limit만큼 가져왔으면 더 있을 가능성이 있음
+    const hasMore = loadedMessages.length === limit
+    
+    return NextResponse.json({
+      success: true,
+      messages: filteredMessages,
+      nextCursor,
+      hasMore,
     })
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { success: false, error: error.message || 'Internal server error' },
       { status: 500 }
     )
   }

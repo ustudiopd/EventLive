@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClientSupabase } from '@/lib/supabase/client'
 
 interface Message {
@@ -10,6 +10,7 @@ interface Message {
   created_at: string
   hidden?: boolean
   user?: {
+    id?: string
     display_name?: string
     email?: string
   }
@@ -32,6 +33,8 @@ interface ChatProps {
   onMessageClick?: (message: Message) => void
   /** 커스텀 메시지 렌더러 */
   renderMessage?: (message: Message) => React.ReactNode
+  /** 관리자 모드 */
+  isAdminMode?: boolean
 }
 
 /**
@@ -46,43 +49,93 @@ export default function Chat({
   onMessageSent,
   onMessageClick,
   renderMessage,
+  isAdminMode = false,
 }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false) // 상단 더보기 로딩 상태
   const [sending, setSending] = useState(false)
   const [fallbackOn, setFallbackOn] = useState(false)
+  const [reconnectKey, setReconnectKey] = useState(0) // 재연결을 위한 키
   const [currentUser, setCurrentUser] = useState<{ id: string; display_name?: string; email?: string } | null>(null)
+  const [nextCursor, setNextCursor] = useState<{ beforeTs: string; beforeId: number } | null>(null)
+  const [hasMore, setHasMore] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesTopRef = useRef<HTMLDivElement>(null) // 상단 sentinel
+  const messagesContainerRef = useRef<HTMLDivElement>(null) // 메시지 컨테이너
   const sendingClientMsgIdRef = useRef<string | null>(null)
   const lastEventAt = useRef<number>(Date.now())
   const lastMessageIdRef = useRef<number>(0)
   const reconnectTriesRef = useRef<number>(0)
+  const initialLoadTimeRef = useRef<number>(0) // 초기 로드 완료 시간
   const supabase = createClientSupabase()
   
-  // 현재 사용자 정보 로드 (API 사용하여 RLS 우회)
+  // 최근 메시지만 유지하는 윈도우 크기 (50~100개)
+  const MAX_MESSAGES_WINDOW = 100
+  
+  // 현재 사용자 정보 로드 및 관리자 여부 확인
   useEffect(() => {
     const loadCurrentUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         try {
-          // API를 통해 프로필 정보 조회 (RLS 우회)
-          const response = await fetch(`/api/profiles/${user.id}`)
-          if (response.ok) {
-            const { profile } = await response.json()
-            setCurrentUser({
-              id: user.id,
-              display_name: profile?.display_name,
-              email: profile?.email,
+          // 웨비나 등록 정보 확인 (참여자 여부)
+          const [registrationResponse, profileResponse, adminCheckResponse] = await Promise.all([
+            supabase
+              .from('registrations')
+              .select('role')
+              .eq('webinar_id', webinarId)
+              .eq('user_id', user.id)
+              .maybeSingle(),
+            fetch(`/api/profiles/${user.id}`),
+            fetch(`/api/webinars/${webinarId}/check-admin`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userIds: [user.id] }),
             })
-            return
+          ])
+          
+          const registration = registrationResponse.data
+          const isParticipant = registration?.role === 'attendee'
+          
+          // 관리자 여부 확인
+          let isAdmin = false
+          if (adminCheckResponse.ok) {
+            const adminResult = await adminCheckResponse.json()
+            isAdmin = adminResult.adminUserIds?.includes(user.id) || false
           }
+          
+          let profile = null
+          if (profileResponse.ok) {
+            const result = await profileResponse.json()
+            profile = result.profile
+          }
+          
+          setCurrentUser({
+            id: user.id,
+            display_name: isAdmin || !isParticipant
+              ? '관리자'
+              : (profile?.display_name || profile?.email || '익명'),
+            email: profile?.email,
+          })
+          return
         } catch (apiError) {
           console.warn('API를 통한 프로필 조회 실패:', apiError)
         }
         
         // 폴백: 직접 조회 시도
         try {
+          // 웨비나 등록 정보 확인
+          const { data: registration } = await supabase
+            .from('registrations')
+            .select('role')
+            .eq('webinar_id', webinarId)
+            .eq('user_id', user.id)
+            .maybeSingle()
+          
+          const isParticipant = registration?.role === 'attendee'
+          
           const { data: profile } = await supabase
             .from('profiles')
             .select('id, display_name, email')
@@ -91,24 +144,174 @@ export default function Chat({
           
           setCurrentUser({
             id: user.id,
-            display_name: profile?.display_name,
+            display_name: isParticipant 
+              ? (profile?.display_name || profile?.email || '익명')
+              : '관리자',
             email: profile?.email,
           })
         } catch (error) {
           console.warn('직접 프로필 조회 실패:', error)
           // 프로필 정보가 없어도 사용자 ID는 설정
+          // 기본적으로 관리자로 표시 (참여자 여부 확인 불가)
           setCurrentUser({
             id: user.id,
+            display_name: '관리자',
           })
         }
       }
     }
     loadCurrentUser()
-  }, [supabase])
+  }, [supabase, webinarId])
+  
+  // 초기 메시지 로드 (최근 메시지)
+  const loadMessages = async (isInitial = true) => {
+    if (isInitial) {
+      setLoading(true)
+    }
+    
+    try {
+      // API를 통해 메시지 조회 (프로필 정보 포함, RLS 우회)
+      const limit = isInitial ? 10 : 20 // 초기: 10개, 더보기: 20개
+      const response = await fetch(`/api/webinars/${webinarId}/messages?limit=${limit}`)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        let errorData
+        try {
+          errorData = JSON.parse(errorText)
+        } catch {
+          errorData = { error: errorText.substring(0, 200) }
+        }
+        console.error('메시지 조회 API 에러:', response.status, errorData)
+        throw new Error(errorData.error || `메시지 조회 실패 (${response.status})`)
+      }
+      
+      const result = await response.json()
+      
+      if (!result.success) {
+        console.error('메시지 조회 실패:', result)
+        throw new Error(result.error || '메시지 조회 실패')
+      }
+      
+      // API에서 이미 pd@ustudio.co.kr 이메일은 "관리자"로 표시하도록 처리됨
+      const { messages: loadedMessages, nextCursor: cursor, hasMore: more } = result
+      
+      // 마지막 메시지 ID 업데이트 (폴백 폴링용)
+      if (loadedMessages.length > 0) {
+        lastMessageIdRef.current = Math.max(
+          ...loadedMessages.map((m: Message) => typeof m.id === 'number' ? m.id : 0),
+          lastMessageIdRef.current
+        )
+      }
+      
+      if (isInitial) {
+        setMessages(loadedMessages || [])
+        // 초기 로드 완료 시간 기록
+        initialLoadTimeRef.current = Date.now()
+      } else {
+        // 더보기: 기존 메시지 앞에 추가
+        setMessages((prev) => {
+          const combined = [...(loadedMessages || []), ...prev]
+          // 중복 제거 (id 기준)
+          const uniqueMap = new Map()
+          combined.forEach((msg) => {
+            uniqueMap.set(String(msg.id), msg)
+          })
+          const unique = Array.from(uniqueMap.values())
+          
+          // 최대 윈도우 크기 제한 (가장 오래된 것부터 제거)
+          if (unique.length > MAX_MESSAGES_WINDOW) {
+            return unique.slice(-MAX_MESSAGES_WINDOW)
+          }
+          return unique
+        })
+      }
+      
+      setNextCursor(cursor)
+      setHasMore(more)
+    } catch (error) {
+      console.error('메시지 로드 실패:', error)
+      // 에러 발생 시 즉시 종료 (고착 방지)
+      if (isInitial) {
+        setMessages([])
+      }
+    } finally {
+      if (isInitial) {
+        setLoading(false)
+      }
+    }
+  }
+  
+  // 상단 더보기 (과거 메시지 로드)
+  const loadMoreMessages = useCallback(async () => {
+    if (loadingMore || !nextCursor || !hasMore) return
+    
+    setLoadingMore(true)
+    
+    try {
+      const { beforeTs, beforeId } = nextCursor
+      const response = await fetch(
+        `/api/webinars/${webinarId}/messages?limit=20&beforeTs=${encodeURIComponent(beforeTs)}&beforeId=${beforeId}`
+      )
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || '메시지 더보기 실패')
+      }
+      
+      const result = await response.json()
+      
+      if (!result.success) {
+        throw new Error(result.error || '메시지 더보기 실패')
+      }
+      
+      const { messages: loadedMessages, nextCursor: cursor, hasMore: more } = result
+      
+      if (loadedMessages.length > 0) {
+        // 스크롤 복원을 위한 높이 저장
+        const container = messagesContainerRef.current
+        const prevScrollHeight = container?.scrollHeight || 0
+        
+        // 기존 메시지 앞에 추가
+        setMessages((prev) => {
+          const combined = [...loadedMessages, ...prev]
+          // 중복 제거
+          const uniqueMap = new Map()
+          combined.forEach((msg) => {
+            uniqueMap.set(String(msg.id), msg)
+          })
+          const unique = Array.from(uniqueMap.values())
+          
+          // 최대 윈도우 크기 제한
+          if (unique.length > MAX_MESSAGES_WINDOW) {
+            return unique.slice(-MAX_MESSAGES_WINDOW)
+          }
+          return unique
+        })
+        
+        // 스크롤 복원 (requestAnimationFrame으로 레이아웃 커밋 후 실행)
+        requestAnimationFrame(() => {
+          if (container) {
+            const newScrollHeight = container.scrollHeight
+            const scrollDiff = newScrollHeight - prevScrollHeight
+            container.scrollTop = scrollDiff
+          }
+        })
+      }
+      
+      setNextCursor(cursor)
+      setHasMore(more)
+    } catch (error) {
+      console.error('메시지 더보기 실패:', error)
+      // 에러 발생 시 즉시 종료
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [webinarId, nextCursor, hasMore, loadingMore])
   
   // 메시지 로드 및 Realtime 구독
   useEffect(() => {
-    loadMessages()
+    loadMessages(true) // 초기 로드
     
     // 고정 채널명 사용 (중복 구독 방지)
     const channelName = `webinar:${webinarId}:messages`
@@ -155,37 +358,96 @@ export default function Chat({
             if (newMsg && !newMsg.hidden) {
               console.log('새 메시지 수신:', newMsg)
               
+              // 초기 로드가 완료되지 않았으면 무시 (초기 로드가 모든 메시지를 가져옴)
+              if (initialLoadTimeRef.current === 0) {
+                console.log('초기 로드 전, Realtime 메시지 무시')
+                return
+              }
+              
               // 프로필 정보를 API로 빠르게 조회
               const fetchProfile = async () => {
                 try {
-                  const response = await fetch(`/api/profiles/${newMsg.user_id}`)
-                  if (response.ok) {
-                    const { profile } = await response.json()
-                    return profile
-                  }
-                } catch (apiError) {
-                  console.warn('API를 통한 프로필 조회 실패:', apiError)
-                }
-                
-                try {
-                  const { data: profile, error: profileError } = await supabase
-                    .from('profiles')
-                    .select('display_name, email')
-                    .eq('id', newMsg.user_id)
-                    .single()
+                  // 프로필, 참여자 여부, 관리자 여부 동시 조회
+                  const [profileResponse, registrationResponse, adminCheckResponse] = await Promise.all([
+                    fetch(`/api/profiles/${newMsg.user_id}`),
+                    supabase
+                      .from('registrations')
+                      .select('role')
+                      .eq('webinar_id', webinarId)
+                      .eq('user_id', newMsg.user_id)
+                      .maybeSingle(),
+                    fetch(`/api/webinars/${webinarId}/check-admin`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ userIds: [newMsg.user_id] }),
+                    })
+                  ])
                   
-                  if (!profileError && profile) {
-                    return profile
+                  let profile = null
+                  if (profileResponse.ok) {
+                    const result = await profileResponse.json()
+                    profile = result.profile
+                  }
+                  
+                  const registration = registrationResponse.data
+                  const isParticipant = registration?.role === 'attendee'
+                  
+                  // 관리자 여부 확인
+                  let isAdmin = false
+                  if (adminCheckResponse.ok) {
+                    const adminResult = await adminCheckResponse.json()
+                    isAdmin = adminResult.adminUserIds?.includes(newMsg.user_id) || false
+                  }
+                  
+                  const displayName = isAdmin || !isParticipant
+                    ? '관리자'
+                    : (profile?.display_name || profile?.email || '익명')
+                  
+                  if (profile) {
+                    return {
+                      ...profile,
+                      display_name: displayName,
+                    }
+                  }
+                  
+                  // 프로필이 없어도 기본 정보 반환
+                  return {
+                    id: newMsg.user_id,
+                    display_name: displayName,
+                    email: null,
                   }
                 } catch (error) {
-                  console.warn('직접 프로필 조회 실패:', error)
+                  console.warn('프로필 조회 실패:', error)
+                  // 기본값: 관리자로 표시
+                  return {
+                    id: newMsg.user_id,
+                    display_name: '관리자',
+                    email: null,
+                  }
                 }
-                
-                return null
               }
               
-              fetchProfile().then((profile) => {
+              fetchProfile().then((profileWithDisplayName) => {
                 setMessages((prev) => {
+                  // 현재 메시지가 없으면 무시 (초기 로드 전)
+                  if (prev.length === 0) {
+                    return prev
+                  }
+                  
+                  // 현재 표시된 메시지 중 가장 최신 메시지 찾기
+                  const latestMsg = prev[prev.length - 1]
+                  if (latestMsg && latestMsg.created_at) {
+                    const latestTime = new Date(latestMsg.created_at).getTime()
+                    const newMsgTime = new Date(newMsg.created_at).getTime()
+                    
+                    // 새 메시지가 현재 표시된 메시지보다 오래된 것이면 무시
+                    // (과거 메시지는 초기 로드나 더보기로만 추가)
+                    if (newMsgTime <= latestTime) {
+                      console.log('과거 메시지 무시 (Realtime):', newMsg.created_at, 'vs', latestMsg.created_at)
+                      return prev
+                    }
+                  }
+                  
                   // client_msg_id로 optimistic 메시지 정확 교체
                   const optimisticIndex = prev.findIndex(m => {
                     if (!m.isOptimistic) return false
@@ -199,10 +461,13 @@ export default function Chat({
                   
                   if (optimisticIndex !== -1) {
                     // Optimistic 메시지를 실제 메시지로 교체
+                    // fetchProfile에서 이미 관리자 여부를 확인하여 "관리자"로 표시하도록 처리됨
+                    const finalUser = profileWithDisplayName || prev[optimisticIndex].user
+                    
                     const updated = [...prev]
                     updated[optimisticIndex] = {
                       ...newMsg,
-                      user: profile || prev[optimisticIndex].user,
+                      user: finalUser,
                       isOptimistic: false,
                     }
                     return updated
@@ -211,17 +476,26 @@ export default function Chat({
                   // 새 메시지 추가 (중복 방지)
                   if (prev.some(m => m.id === newMsg.id)) return prev
                   
-                  return [...prev, {
+                  // fetchProfile에서 이미 관리자 여부를 확인하여 "관리자"로 표시하도록 처리됨
+                  const finalUser = profileWithDisplayName
+                  
+                  const updated = [...prev, {
                     id: newMsg.id,
                     user_id: newMsg.user_id,
                     content: newMsg.content,
                     created_at: newMsg.created_at,
                     hidden: newMsg.hidden,
-                    user: profile,
+                    user: finalUser,
                     client_msg_id: newMsg.client_msg_id,
                   }].sort((a, b) => 
                     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                   )
+                  
+                  // 윈도우 크기 제한 (가장 오래된 것부터 제거)
+                  if (updated.length > MAX_MESSAGES_WINDOW) {
+                    return updated.slice(-MAX_MESSAGES_WINDOW)
+                  }
+                  return updated
                 })
                 
                 // 내가 보낸 메시지면 스피너 끄기 (이중 안전장치)
@@ -233,6 +507,24 @@ export default function Chat({
                 console.error('프로필 조회 오류:', error)
                 // 프로필 없이도 메시지 추가
                 setMessages((prev) => {
+                  // 현재 메시지가 없으면 무시
+                  if (prev.length === 0) {
+                    return prev
+                  }
+                  
+                  // 현재 표시된 메시지 중 가장 최신 메시지 찾기
+                  const latestMsg = prev[prev.length - 1]
+                  if (latestMsg && latestMsg.created_at) {
+                    const latestTime = new Date(latestMsg.created_at).getTime()
+                    const newMsgTime = new Date(newMsg.created_at).getTime()
+                    
+                    // 새 메시지가 현재 표시된 메시지보다 오래된 것이면 무시
+                    if (newMsgTime <= latestTime) {
+                      console.log('과거 메시지 무시 (Realtime, 프로필 오류):', newMsg.created_at, 'vs', latestMsg.created_at)
+                      return prev
+                    }
+                  }
+                  
                   if (prev.some(m => m.id === newMsg.id)) return prev
                   
                   const optimisticIndex = prev.findIndex(m => {
@@ -248,7 +540,7 @@ export default function Chat({
                     filtered = prev.filter((_, idx) => idx !== optimisticIndex)
                   }
                   
-                  return [...filtered, {
+                  const updated = [...filtered, {
                     id: newMsg.id,
                     user_id: newMsg.user_id,
                     content: newMsg.content,
@@ -259,6 +551,12 @@ export default function Chat({
                   }].sort((a, b) => 
                     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                   )
+                  
+                  // 윈도우 크기 제한 (가장 오래된 것부터 제거)
+                  if (updated.length > MAX_MESSAGES_WINDOW) {
+                    return updated.slice(-MAX_MESSAGES_WINDOW)
+                  }
+                  return updated
                 })
               })
             }
@@ -287,12 +585,13 @@ export default function Chat({
           }
         }
       )
-      .subscribe((status, err) => {
+      .subscribe(async (status, err) => {
         console.log('실시간 구독 상태:', status, err)
         
         if (status === 'SUBSCRIBED') {
           reconnectTriesRef.current = 0
           setFallbackOn(false)
+          lastEventAt.current = Date.now()
           console.log('✅ 실시간 구독 성공:', channelName)
         } else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
           reconnectTriesRef.current++
@@ -304,14 +603,30 @@ export default function Chat({
           if (reconnectTriesRef.current >= 3) {
             console.warn('🔴 실시간 구독 3회 실패, 폴백 폴링 활성화')
             setFallbackOn(true)
+            return // 재연결 시도 중단
           }
           
-          // 재연결 시도
+          // 토큰 재주입 시도
+          try {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (session?.access_token) {
+              supabase.realtime.setAuth(session.access_token)
+            }
+          } catch (tokenError) {
+            console.warn('토큰 재주입 실패:', tokenError)
+          }
+          
+          // 재연결 시도 (reconnectKey 변경으로 useEffect 재실행)
           setTimeout(() => {
+            // 채널 정리
             channel.unsubscribe().then(() => {
               supabase.removeChannel(channel)
-              // 재구독은 useEffect 재실행으로 처리됨
+            }).catch(() => {
+              // 무시 (이미 정리되었을 수 있음)
             })
+            
+            // reconnectKey 변경으로 useEffect 재실행
+            setReconnectKey(prev => prev + 1)
           }, delay)
         }
       })
@@ -324,7 +639,7 @@ export default function Chat({
         console.warn('채널 구독 해제 오류:', err)
       })
     }
-  }, [webinarId, supabase, fallbackOn, currentUser?.id])
+  }, [webinarId, supabase, currentUser?.id, reconnectKey])
   
   // 헬스체크: 10초 동안 이벤트가 없으면 폴백 활성화
   useEffect(() => {
@@ -378,13 +693,19 @@ export default function Chat({
                 (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
               )
               
+              // 윈도우 크기 제한 (가장 오래된 것부터 제거)
+              let windowed = sorted
+              if (sorted.length > MAX_MESSAGES_WINDOW) {
+                windowed = sorted.slice(-MAX_MESSAGES_WINDOW)
+              }
+              
               // 마지막 메시지 ID 업데이트
               lastMessageIdRef.current = Math.max(
-                ...sorted.map(m => typeof m.id === 'number' ? m.id : 0),
+                ...windowed.map(m => typeof m.id === 'number' ? m.id : 0),
                 lastMessageIdRef.current
               )
               
-              return sorted
+              return windowed
             })
             
             // 이벤트 수신 시간 업데이트
@@ -432,74 +753,21 @@ export default function Chat({
     }
   }, [fallbackOn, webinarId])
   
-  // 스크롤 자동 이동
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  // 상단 무한 스크롤은 제거하고 수동 버튼으로 변경
   
-  const loadMessages = async () => {
-    setLoading(true)
-    try {
-      // API를 통해 메시지 조회 (프로필 정보 포함, RLS 우회)
-      const response = await fetch(`/api/webinars/${webinarId}/messages`)
-      
-      if (!response.ok) {
-        throw new Error('메시지 조회 실패')
-      }
-      
-      const { messages } = await response.json()
-      const loadedMessages = messages || []
-      
-      // 마지막 메시지 ID 업데이트 (폴백 폴링용)
-      if (loadedMessages.length > 0) {
-        lastMessageIdRef.current = Math.max(
-          ...loadedMessages.map((m: Message) => typeof m.id === 'number' ? m.id : 0),
-          lastMessageIdRef.current
-        )
-      }
-      
-      setMessages(loadedMessages)
-    } catch (error) {
-      console.error('메시지 로드 실패:', error)
-      // 폴백: 클라이언트에서 직접 조회 시도
-      try {
-        const { data, error: fallbackError } = await supabase
-          .from('messages')
-          .select(`
-            id,
-            user_id,
-            content,
-            created_at,
-            hidden,
-            profiles:user_id (
-              display_name,
-              email
-            )
-          `)
-          .eq('webinar_id', webinarId)
-          .eq('hidden', false)
-          .order('created_at', { ascending: false })
-          .limit(maxMessages)
-        
-        if (!fallbackError && data) {
-          const formattedMessages = (data || []).map((msg: any) => ({
-            id: msg.id,
-            user_id: msg.user_id,
-            content: msg.content,
-            created_at: msg.created_at,
-            hidden: msg.hidden,
-            user: msg.profiles || null,
-          })).reverse()
-          
-          setMessages(formattedMessages)
+  // 스크롤 자동 이동 (새 메시지가 추가될 때만)
+  useEffect(() => {
+    // 초기 로드가 아니고, 사용자가 하단에 있을 때만 자동 스크롤
+    if (!loading && messages.length > 0) {
+      const container = messagesContainerRef.current
+      if (container) {
+        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
+        if (isNearBottom) {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
         }
-      } catch (fallbackError) {
-        console.error('폴백 메시지 로드 실패:', fallbackError)
       }
-    } finally {
-      setLoading(false)
     }
-  }
+  }, [messages.length, loading]) // messages.length만 감지 (내용 변경은 무시)
   
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -545,6 +813,11 @@ export default function Chat({
       }
     }
     
+    // currentUser의 display_name이 "관리자"이면 그대로 사용, 아니면 프로필 정보 사용
+    const displayName = userProfile.display_name === '관리자'
+      ? '관리자'
+      : (userProfile.display_name || userProfile.email || '익명')
+    
     // Optimistic Update: 즉시 UI에 임시 메시지 추가 (프로필 정보 포함)
     const optimisticMessage: Message = {
       id: tempId,
@@ -552,10 +825,11 @@ export default function Chat({
       content: messageContent,
       created_at: now,
       hidden: false,
-      user: (userProfile.display_name || userProfile.email) ? {
-        display_name: userProfile.display_name,
-        email: userProfile.email,
-      } : undefined,
+      user: {
+        id: currentUser.id,
+        display_name: displayName,
+        email: userProfile.email || undefined,
+      },
       isOptimistic: true,
       client_msg_id: clientMsgId,
     }
@@ -592,11 +866,15 @@ export default function Chat({
       
       // ✅ API 성공 즉시 UI 교체 (Realtime 대기 없이)
       const serverMsg = result.message
+      // API에서 이미 관리자 여부를 확인하여 "관리자"로 표시하도록 처리됨
+      // currentUser의 display_name이 "관리자"이면 그대로 사용
+      const serverMsgUser = serverMsg.user || userProfile || { id: currentUser.id, display_name: displayName }
+      
       setMessages((prev) => prev.map((msg) => {
         if (msg.id === tempId) {
           return {
             ...serverMsg,
-            user: userProfile || msg.user,
+            user: serverMsgUser,
             isOptimistic: false,
           }
         }
@@ -638,7 +916,29 @@ export default function Chat({
   return (
     <div className={`flex flex-col h-full ${className}`}>
       {/* 메시지 목록 */}
-      <div className="flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 space-y-2 sm:space-y-3">
+      <div 
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 space-y-2 sm:space-y-3"
+      >
+        {/* 과거 메시지 더보기 버튼 */}
+        {hasMore && !loadingMore && (
+          <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm py-2 border-b border-gray-200">
+            <button
+              onClick={loadMoreMessages}
+              className="w-full px-4 py-2 text-xs sm:text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors font-medium"
+            >
+              과거 메시지 더보기
+            </button>
+          </div>
+        )}
+        
+        {/* 더보기 로딩 표시 */}
+        {loadingMore && (
+          <div className="text-center text-gray-500 py-2 text-xs sm:text-sm">
+            과거 메시지 불러오는 중...
+          </div>
+        )}
+        
         {loading && messages.length === 0 ? (
           <div className="text-center text-gray-500 py-8 text-xs sm:text-sm">메시지를 불러오는 중...</div>
         ) : messages.length === 0 ? (
@@ -656,9 +956,9 @@ export default function Chat({
             return (
               <div
                 key={message.id}
-                className={`hover:bg-gray-50 p-1.5 sm:p-2 rounded-lg cursor-pointer transition-colors ${
+                className={`hover:bg-gray-50 p-1.5 sm:p-2 rounded-lg transition-colors ${
                   message.isOptimistic ? 'opacity-70' : ''
-                }`}
+                } ${onMessageClick ? 'cursor-pointer' : ''}`}
                 onClick={() => onMessageClick?.(message)}
               >
                 <div className="flex items-start gap-1.5 sm:gap-2">
@@ -676,6 +976,38 @@ export default function Chat({
                     </div>
                     <p className="text-xs sm:text-sm text-gray-700 break-words leading-relaxed">{message.content}</p>
                   </div>
+                  {/* 관리자 모드: 메시지 삭제 버튼 */}
+                  {isAdminMode && !message.isOptimistic && typeof message.id === 'number' && (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (!confirm('이 메시지를 삭제하시겠습니까?')) return
+                        
+                        try {
+                          const response = await fetch(`/api/messages/${message.id}`, {
+                            method: 'DELETE',
+                          })
+                          
+                          if (!response.ok) {
+                            const result = await response.json()
+                            throw new Error(result.error || '메시지 삭제 실패')
+                          }
+                          
+                          // 메시지 목록에서 제거
+                          setMessages((prev) => prev.filter((msg) => msg.id !== message.id))
+                        } catch (error: any) {
+                          console.error('메시지 삭제 실패:', error)
+                          alert(error.message || '메시지 삭제에 실패했습니다')
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-700 text-xs p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="메시지 삭제"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               </div>
             )

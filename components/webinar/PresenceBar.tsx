@@ -35,6 +35,7 @@ export default function PresenceBar({
 }: PresenceBarProps) {
   const [participants, setParticipants] = useState<PresenceUser[]>([])
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set())
+  const [currentUser, setCurrentUser] = useState<PresenceUser | null>(null)
   const supabase = createClientSupabase()
   
   // 중복 제거 헬퍼 함수 (더 강력한 버전)
@@ -63,8 +64,73 @@ export default function PresenceBar({
     })
     
     // 현재 사용자 정보 가져오기
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
+        // 현재 사용자 프로필 정보 및 관리자 여부 조회
+        try {
+          const [profileResponse, registrationResponse, adminCheckResponse] = await Promise.all([
+            fetch(`/api/profiles/${user.id}`),
+            supabase
+              .from('registrations')
+              .select('role')
+              .eq('webinar_id', webinarId)
+              .eq('user_id', user.id)
+              .maybeSingle(),
+            fetch(`/api/webinars/${webinarId}/check-admin`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userIds: [user.id] }),
+            })
+          ])
+          
+          let profile = null
+          if (profileResponse.ok) {
+            const result = await profileResponse.json()
+            profile = result.profile
+          }
+          
+          const registration = registrationResponse.data
+          const isParticipant = registration?.role === 'attendee'
+          
+          // 관리자 여부 확인
+          let isAdmin = false
+          if (adminCheckResponse.ok) {
+            const adminResult = await adminCheckResponse.json()
+            isAdmin = adminResult.adminUserIds?.includes(user.id) || false
+          }
+          
+          const displayName = isAdmin || !isParticipant
+            ? '관리자'
+            : (profile?.display_name || profile?.email || '익명')
+          
+          setCurrentUser({
+            id: user.id,
+            display_name: displayName,
+            email: profile?.email,
+          })
+        } catch (error) {
+          console.warn('현재 사용자 프로필 조회 실패:', error)
+          // 폴백: 직접 조회
+          try {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('display_name, email')
+              .eq('id', user.id)
+              .single()
+            
+            setCurrentUser({
+              id: user.id,
+              display_name: profile?.display_name || profile?.email || '익명',
+              email: profile?.email,
+            })
+          } catch (fallbackError) {
+            setCurrentUser({
+              id: user.id,
+              display_name: '익명',
+            })
+          }
+        }
+        
         // Presence에 참여
         channel
           .on('presence', { event: 'sync' }, async () => {
@@ -93,6 +159,9 @@ export default function PresenceBar({
             // Map의 값들을 배열로 변환하고 한 번 더 중복 제거
             let uniqueUsers = deduplicateUsers(Array.from(usersMap.values()))
             
+            // 자기 자신 제외
+            uniqueUsers = uniqueUsers.filter(u => u.id !== user.id)
+            
             // 프로필 정보가 없는 사용자들의 프로필 정보 조회
             const usersWithoutProfile = uniqueUsers.filter(u => !u.display_name && !u.email)
             if (usersWithoutProfile.length > 0) {
@@ -100,7 +169,8 @@ export default function PresenceBar({
               try {
                 const response = await fetch(`/api/webinars/${webinarId}/messages`)
                 if (response.ok) {
-                  const { messages } = await response.json()
+                  const result = await response.json()
+                  const messages = result.messages || []
                   // 메시지에서 프로필 정보 추출
                   const profileMap = new Map<string, { display_name?: string; email?: string }>()
                   messages.forEach((msg: any) => {
@@ -274,44 +344,60 @@ export default function PresenceBar({
     }
   }, [webinarId, showTyping])
   
+  // 자기 자신을 제외한 참여자 목록
+  const otherParticipants = participants.filter(p => p.id !== currentUser?.id)
+  
   return (
-    <div className={`flex items-center gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200 ${className}`}>
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-gray-700">참여자:</span>
-        <span className="text-sm font-bold text-blue-600">{participants.length}명</span>
-      </div>
-      
-      {participants.length > 0 && (
-        <div className="flex items-center gap-2 flex-1 overflow-x-auto">
-          {deduplicateUsers(participants).map((user, index) => {
-            // key를 더 고유하게 만들기 위해 index도 추가
-            const uniqueKey = `${user.id}-${index}`
-            
-            if (renderUser) {
-              return (
-                <div key={uniqueKey} onClick={() => onUserClick?.(user)}>
-                  {renderUser(user)}
-                </div>
-              )
-            }
-            
-            return (
-              <div
-                key={uniqueKey}
-                className="flex items-center gap-1 px-2 py-1 bg-white rounded border border-gray-200 cursor-pointer hover:border-blue-300 transition-colors"
-                onClick={() => onUserClick?.(user)}
-              >
-                <span className="text-xs font-medium text-gray-700">
-                  {user.display_name || user.email || '익명'}
-                </span>
-                {typingUsers.has(user.id) && (
-                  <span className="text-xs text-gray-500 animate-pulse">입력 중...</span>
-                )}
-              </div>
-            )
-          })}
+    <div className={`flex flex-col gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200 ${className}`}>
+      {/* 접속 중 표시 */}
+      {currentUser && (
+        <div className="flex items-center gap-2 text-xs sm:text-sm">
+          <span className="text-gray-600">접속 중:</span>
+          <span className="font-semibold text-gray-800">
+            {currentUser.display_name || currentUser.email || '익명'}
+          </span>
         </div>
       )}
+      
+      {/* 참여자 목록 */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xs sm:text-sm font-medium text-gray-700">참여자:</span>
+          <span className="text-xs sm:text-sm font-bold text-blue-600">{otherParticipants.length}명</span>
+        </div>
+        
+        {otherParticipants.length > 0 && (
+          <div className="flex items-center gap-2 flex-1 overflow-x-auto">
+            {deduplicateUsers(otherParticipants).map((user, index) => {
+              // key를 더 고유하게 만들기 위해 index도 추가
+              const uniqueKey = `${user.id}-${index}`
+              
+              if (renderUser) {
+                return (
+                  <div key={uniqueKey} onClick={() => onUserClick?.(user)}>
+                    {renderUser(user)}
+                  </div>
+                )
+              }
+              
+              return (
+                <div
+                  key={uniqueKey}
+                  className="flex items-center gap-1 px-2 py-1 bg-white rounded border border-gray-200 cursor-pointer hover:border-blue-300 transition-colors"
+                  onClick={() => onUserClick?.(user)}
+                >
+                  <span className="text-xs font-medium text-gray-700">
+                    {user.display_name || user.email || '익명'}
+                  </span>
+                  {typingUsers.has(user.id) && (
+                    <span className="text-xs text-gray-500 animate-pulse">입력 중...</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

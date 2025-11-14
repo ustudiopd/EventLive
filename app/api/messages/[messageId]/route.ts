@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
-import { requireClientMember } from '@/lib/auth/guards'
+import { requireClientMember, requireAuth } from '@/lib/auth/guards'
 import { createAdminSupabase } from '@/lib/supabase/admin'
+import { createServerSupabase } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
 
@@ -30,23 +31,66 @@ export async function PATCH(
     }
     
     // 웨비나 정보 조회
-    const { data: webinar } = await admin
+    const { data: webinarRaw } = await admin
       .from('webinars')
-      .select('client_id')
+      .select('client_id, agency_id')
       .eq('id', message.webinar_id)
       .single()
     
-    if (!webinar) {
+    if (!webinarRaw) {
       return NextResponse.json(
         { error: 'Webinar not found' },
         { status: 404 }
       )
     }
     
-    // 권한 확인 (operator 이상)
-    const { user, role } = await requireClientMember(webinar.client_id, ['owner', 'admin', 'operator'])
+    // 타입 단언
+    const webinar = webinarRaw as { client_id: string; agency_id: string | null }
     
-    if (role === 'viewer') {
+    // 권한 확인 (슈퍼 관리자, 에이전시 멤버, 클라이언트 멤버)
+    const supabase = await createServerSupabase()
+    const { user } = await requireAuth()
+    
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_super_admin')
+      .eq('id', user.id)
+      .single()
+    
+    let hasPermission = false
+    
+    // 1. 슈퍼 관리자 확인
+    if (profile?.is_super_admin) {
+      hasPermission = true
+    } else {
+      // 2. 클라이언트 멤버십 확인 (owner/admin/operator)
+      const { data: clientMember } = await supabase
+        .from('client_members')
+        .select('role')
+        .eq('client_id', webinar.client_id)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      
+      if (clientMember && ['owner', 'admin', 'operator'].includes(clientMember.role)) {
+        hasPermission = true
+      } else {
+        // 3. 에이전시 멤버십 확인 (owner/admin)
+        if (webinar.agency_id) {
+          const { data: agencyMember } = await supabase
+            .from('agency_members')
+            .select('role')
+            .eq('agency_id', webinar.agency_id)
+            .eq('user_id', user.id)
+            .maybeSingle()
+          
+          if (agencyMember && ['owner', 'admin'].includes(agencyMember.role)) {
+            hasPermission = true
+          }
+        }
+      }
+    }
+    
+    if (!hasPermission) {
       return NextResponse.json(
         { error: 'Insufficient permissions' },
         { status: 403 }
@@ -114,23 +158,66 @@ export async function DELETE(
     }
     
     // 웨비나 정보 조회
-    const { data: webinar } = await admin
+    const { data: webinarRaw } = await admin
       .from('webinars')
-      .select('client_id')
+      .select('client_id, agency_id')
       .eq('id', message.webinar_id)
       .single()
     
-    if (!webinar) {
+    if (!webinarRaw) {
       return NextResponse.json(
         { error: 'Webinar not found' },
         { status: 404 }
       )
     }
     
-    // 권한 확인 (operator 이상)
-    const { user, role } = await requireClientMember(webinar.client_id, ['owner', 'admin', 'operator'])
+    // 타입 단언
+    const webinar = webinarRaw as { client_id: string; agency_id: string | null }
     
-    if (role === 'viewer') {
+    // 권한 확인 (슈퍼 관리자, 에이전시 멤버, 클라이언트 멤버)
+    const supabase = await createServerSupabase()
+    const { user } = await requireAuth()
+    
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_super_admin')
+      .eq('id', user.id)
+      .single()
+    
+    let hasPermission = false
+    
+    // 1. 슈퍼 관리자 확인
+    if (profile?.is_super_admin) {
+      hasPermission = true
+    } else {
+      // 2. 클라이언트 멤버십 확인 (owner/admin/operator)
+      const { data: clientMember } = await supabase
+        .from('client_members')
+        .select('role')
+        .eq('client_id', webinar.client_id)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      
+      if (clientMember && ['owner', 'admin', 'operator'].includes(clientMember.role)) {
+        hasPermission = true
+      } else {
+        // 3. 에이전시 멤버십 확인 (owner/admin)
+        if (webinar.agency_id) {
+          const { data: agencyMember } = await supabase
+            .from('agency_members')
+            .select('role')
+            .eq('agency_id', webinar.agency_id)
+            .eq('user_id', user.id)
+            .maybeSingle()
+          
+          if (agencyMember && ['owner', 'admin'].includes(agencyMember.role)) {
+            hasPermission = true
+          }
+        }
+      }
+    }
+    
+    if (!hasPermission) {
       return NextResponse.json(
         { error: 'Insufficient permissions' },
         { status: 403 }

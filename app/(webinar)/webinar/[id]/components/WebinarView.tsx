@@ -27,13 +27,14 @@ interface Webinar {
 
 interface WebinarViewProps {
   webinar: Webinar
+  isAdminMode?: boolean
 }
 
 /**
  * 웨비나 시청 페이지 메인 컴포넌트
  * 모듈화된 컴포넌트들을 조합하여 구성
  */
-export default function WebinarView({ webinar }: WebinarViewProps) {
+export default function WebinarView({ webinar, isAdminMode = false }: WebinarViewProps) {
   const [activeTab, setActiveTab] = useState<'chat' | 'qa'>('chat')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -52,12 +53,22 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
         if (!user) return
         
         // 웨비나에 자동 등록
-        const response = await fetch(`/api/webinars/${webinar.id}/register`, {
-          method: 'POST',
-        })
-        
-        if (!response.ok) {
-          console.error('웨비나 등록 실패:', await response.text())
+        try {
+          const response = await fetch(`/api/webinars/${webinar.id}/register`, {
+            method: 'POST',
+          })
+          
+          if (!response.ok) {
+            const errorText = await response.text()
+            // HTML 응답인 경우 (404 페이지 등) 간단히 로깅
+            if (errorText.includes('<!DOCTYPE html>')) {
+              console.warn('웨비나 등록 API 404:', `/api/webinars/${webinar.id}/register`)
+            } else {
+              console.error('웨비나 등록 실패:', response.status, errorText.substring(0, 200))
+            }
+          }
+        } catch (fetchError) {
+          console.error('웨비나 등록 요청 오류:', fetchError)
         }
       } catch (error) {
         console.error('웨비나 등록 오류:', error)
@@ -329,12 +340,14 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
                       webinarId={webinar.id}
                       canSend={true}
                       maxMessages={50}
+                      isAdminMode={isAdminMode}
                     />
                   ) : (
                     <QA
                       webinarId={webinar.id}
                       canAsk={true}
                       showOnlyMine={false}
+                      isAdminMode={isAdminMode}
                     />
                   )}
                 </div>
@@ -376,12 +389,14 @@ export default function WebinarView({ webinar }: WebinarViewProps) {
                     webinarId={webinar.id}
                     canSend={true}
                     maxMessages={50}
+                    isAdminMode={isAdminMode}
                   />
                 ) : (
                   <QA
                     webinarId={webinar.id}
                     canAsk={true}
                     showOnlyMine={false}
+                    isAdminMode={isAdminMode}
                   />
                 )}
               </div>

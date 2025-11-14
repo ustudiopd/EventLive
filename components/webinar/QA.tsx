@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClientSupabase } from '@/lib/supabase/client'
 
 interface Question {
@@ -11,6 +11,7 @@ interface Question {
   created_at: string
   answered_by?: string
   answered_at?: string
+  answer?: string
   user?: {
     display_name?: string
     email?: string
@@ -32,6 +33,8 @@ interface QAProps {
   renderQuestion?: (question: Question) => React.ReactNode
   /** 내 질문만 보기 */
   showOnlyMine?: boolean
+  /** 관리자 모드 */
+  isAdminMode?: boolean
 }
 
 /**
@@ -46,20 +49,99 @@ export default function QA({
   onQuestionClick,
   renderQuestion,
   showOnlyMine = false,
+  isAdminMode = false,
 }: QAProps) {
   const [questions, setQuestions] = useState<Question[]>([])
   const [newQuestion, setNewQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [filter, setFilter] = useState<'all' | 'published' | 'answered' | 'pinned'>('all')
+  const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null)
+  const [answerText, setAnswerText] = useState('')
+  const [answering, setAnswering] = useState(false)
+  const [expandedAnswers, setExpandedAnswers] = useState<Set<number>>(new Set())
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null)
+  const [editContent, setEditContent] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const supabase = createClientSupabase()
+  
+  const loadQuestions = useCallback(async () => {
+    setLoading(true)
+    try {
+      // API를 통해 질문 조회 (프로필 정보 포함, RLS 우회)
+      // 관리자 모드일 때는 항상 전체 질문 조회
+      const params = new URLSearchParams({
+        onlyMine: isAdminMode ? 'false' : (showOnlyMine ? 'true' : 'false'),
+        filter: filter,
+      })
+      
+      const response = await fetch(`/api/webinars/${webinarId}/questions?${params}`)
+      
+      if (!response.ok) {
+        throw new Error('질문 조회 실패')
+      }
+      
+      const { questions } = await response.json()
+      const loadedQuestions = questions || []
+      setQuestions(loadedQuestions)
+      
+      // 답변이 있는 질문은 기본적으로 펼쳐진 상태로 설정
+      const answeredQuestionIds = loadedQuestions
+        .filter((q: Question) => q.status === 'answered' && q.answer)
+        .map((q: Question) => q.id)
+      
+      if (answeredQuestionIds.length > 0) {
+        setExpandedAnswers((prev) => {
+          const next = new Set(prev)
+          answeredQuestionIds.forEach((id: number) => next.add(id))
+          return next
+        })
+      }
+    } catch (error) {
+      console.error('질문 로드 실패:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [webinarId, showOnlyMine, filter, isAdminMode])
+  
+  // 현재 사용자 ID 로드
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setCurrentUserId(user.id)
+      }
+    })
+  }, [supabase])
   
   useEffect(() => {
     loadQuestions()
     
+    // 고정 채널명 사용
+    const channelName = `webinar:${webinarId}:questions`
+    
+    // 기존 채널 확인 및 제거
+    const existingChannel = supabase.getChannels().find(
+      ch => ch.topic === `realtime:${channelName}`
+    )
+    if (existingChannel) {
+      existingChannel.unsubscribe().then(() => {
+        supabase.removeChannel(existingChannel)
+      })
+    }
+    
+    const reconnectTimeouts: NodeJS.Timeout[] = []
+    let fallbackInterval: NodeJS.Timeout | null = null
+    let reconnectTries = 0
+    const MAX_RECONNECT_TRIES = 3
+    
     // 실시간 구독
     const channel = supabase
-      .channel(`webinar-${webinarId}-questions`)
+      .channel(channelName, {
+        config: {
+          broadcast: { self: false },
+        },
+      })
       .on(
         'postgres_changes',
         {
@@ -68,113 +150,137 @@ export default function QA({
           table: 'questions',
           filter: `webinar_id=eq.${webinarId}`,
         },
-        () => {
+        (payload) => {
+          console.log('질문 실시간 이벤트:', payload.eventType)
+          reconnectTries = 0 // 성공 시 재연결 시도 횟수 리셋
+          // 폴백 폴링 중지
+          if (fallbackInterval) {
+            clearInterval(fallbackInterval)
+            fallbackInterval = null
+          }
+          
+          // UPDATE 이벤트에서 답변이 추가된 경우 자동으로 펼치기
+          if (payload.eventType === 'UPDATE' && payload.new) {
+            const updatedQuestion = payload.new as any
+            if (updatedQuestion.status === 'answered' && updatedQuestion.answer) {
+              setExpandedAnswers((prev) => {
+                const next = new Set(prev)
+                next.add(updatedQuestion.id)
+                return next
+              })
+            }
+          }
+          
           loadQuestions()
         }
       )
-      .subscribe()
+      .subscribe(async (status, err) => {
+        console.log('질문 실시간 구독 상태:', status, err)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ 질문 실시간 구독 성공:', channelName)
+          reconnectTries = 0
+          // 폴백 폴링 중지
+          if (fallbackInterval) {
+            clearInterval(fallbackInterval)
+            fallbackInterval = null
+          }
+        } else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+          console.warn(`⚠️ 질문 실시간 구독 실패 (${status})`)
+          
+          if (reconnectTries < MAX_RECONNECT_TRIES) {
+            reconnectTries++
+            const delay = Math.min(1000 * Math.pow(2, reconnectTries - 1), 10000) // 지수 백오프
+            console.log(`${delay}ms 후 재연결 시도 (${reconnectTries}/${MAX_RECONNECT_TRIES})...`)
+            const timeout = setTimeout(() => {
+              // 채널 재구독
+              channel.unsubscribe().then(() => {
+                channel.subscribe()
+              })
+            }, delay)
+            reconnectTimeouts.push(timeout)
+          } else {
+            console.warn('질문 실시간 구독 최대 재시도 횟수 초과, 폴백 폴링 활성화')
+            // 폴백: 주기적으로 질문 새로고침
+            if (!fallbackInterval) {
+              fallbackInterval = setInterval(() => {
+                loadQuestions()
+              }, 5000) // 5초마다 폴링
+            }
+          }
+        }
+      })
     
     return () => {
-      channel.unsubscribe()
-    }
-  }, [webinarId, showOnlyMine])
-  
-  const loadQuestions = async () => {
-    setLoading(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      let query = supabase
-        .from('questions')
-        .select(`
-          id,
-          user_id,
-          content,
-          status,
-          created_at,
-          answered_by,
-          answered_at,
-          profiles:user_id (
-            display_name,
-            email
-          )
-        `)
-        .eq('webinar_id', webinarId)
-      
-      if (showOnlyMine && user) {
-        query = query.eq('user_id', user.id)
+      // 모든 재연결 타임아웃 정리
+      reconnectTimeouts.forEach(timeout => clearTimeout(timeout))
+      // 폴백 폴링 정리
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval)
       }
-      
-      if (filter === 'published') {
-        query = query.eq('status', 'published')
-      } else if (filter === 'answered') {
-        query = query.eq('status', 'answered')
-      } else if (filter === 'pinned') {
-        query = query.eq('status', 'pinned')
-      } else {
-        query = query.neq('status', 'hidden')
-      }
-      
-      const { data, error } = await query
-        .order('created_at', { ascending: false })
-      
-      if (error) throw error
-      
-      const formattedQuestions = (data || []).map((q: any) => ({
-        id: q.id,
-        user_id: q.user_id,
-        content: q.content,
-        status: q.status,
-        created_at: q.created_at,
-        answered_by: q.answered_by,
-        answered_at: q.answered_at,
-        user: q.profiles,
-      }))
-      
-      // 고정된 질문을 맨 위로
-      const sorted = formattedQuestions.sort((a, b) => {
-        if (a.status === 'pinned' && b.status !== 'pinned') return -1
-        if (a.status !== 'pinned' && b.status === 'pinned') return 1
-        return 0
+      // 채널 구독 해제
+      channel.unsubscribe().then(() => {
+        supabase.removeChannel(channel)
+      }).catch((err) => {
+        console.warn('질문 채널 구독 해제 오류:', err)
       })
-      
-      setQuestions(sorted)
-    } catch (error) {
-      console.error('질문 로드 실패:', error)
-    } finally {
-      setLoading(false)
     }
-  }
+  }, [webinarId, showOnlyMine, filter, isAdminMode, supabase, loadQuestions])
   
   const handleAsk = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newQuestion.trim() || sending || !canAsk) return
     
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      alert('로그인이 필요합니다')
+      return
+    }
+    
+    const questionContent = newQuestion.trim()
+    const tempId = `temp-${Date.now()}`
+    
+    // Optimistic Update: 즉시 UI에 임시 질문 추가
+    const optimisticQuestion: Question = {
+      id: parseInt(tempId.replace('temp-', '')),
+      user_id: user.id,
+      content: questionContent,
+      status: 'published',
+      created_at: new Date().toISOString(),
+      user: {
+        display_name: '나',
+        email: undefined,
+      },
+    }
+    
+    setQuestions((prev) => [...prev, optimisticQuestion])
+    setNewQuestion('')
     setSending(true)
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        alert('로그인이 필요합니다')
-        return
-      }
-      
       // API를 통해 질문 등록 (서버 사이드에서 agency_id, client_id 자동 설정)
       const response = await fetch('/api/questions/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           webinarId,
-          content: newQuestion.trim(),
+          content: questionContent,
         }),
       })
       
       const result = await response.json()
       
       if (!response.ok || result.error) {
+        // 실패: Optimistic 질문 제거 및 입력 복원
+        setQuestions((prev) => prev.filter((q) => q.id !== optimisticQuestion.id))
+        setNewQuestion(questionContent)
         throw new Error(result.error || '질문 등록 실패')
       }
       
-      setNewQuestion('')
+      // 성공: Optimistic 질문을 실제 질문으로 교체
+      setQuestions((prev) => prev.map((q) => 
+        q.id === optimisticQuestion.id ? result.question : q
+      ))
+      
       onQuestionAsked?.(result.question)
     } catch (error: any) {
       console.error('질문 등록 실패:', error)
@@ -187,6 +293,60 @@ export default function QA({
   const formatTime = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+  }
+  
+  const handleQuestionClick = (question: Question) => {
+    if (isAdminMode) {
+      setSelectedQuestion(question)
+      setAnswerText('')
+    } else {
+      onQuestionClick?.(question)
+    }
+  }
+  
+  const handleAnswer = async () => {
+    if (!selectedQuestion || !answerText.trim() || answering) return
+    
+    setAnswering(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('로그인이 필요합니다')
+        return
+      }
+      
+      // 답변 API 호출
+      const response = await fetch(`/api/questions/${selectedQuestion.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'answered',
+          answeredBy: user.id,
+          answer: answerText.trim(),
+        }),
+      })
+      
+      const result = await response.json()
+      
+      if (!response.ok || result.error) {
+        throw new Error(result.error || '답변 등록 실패')
+      }
+      
+      // 질문 목록 새로고침
+      await loadQuestions()
+      
+      // 답변 완료 후 모달 닫기
+      setSelectedQuestion(null)
+      setAnswerText('')
+    } catch (error: any) {
+      console.error('답변 등록 실패:', error)
+      alert(error.message || '답변 등록에 실패했습니다')
+      // 에러 발생 시에도 answering 상태 해제
+      setAnswering(false)
+      return
+    } finally {
+      setAnswering(false)
+    }
   }
   
   return (
@@ -253,17 +413,18 @@ export default function QA({
               )
             }
             
+            const isAnswerExpanded = expandedAnswers.has(question.id)
+            
             return (
               <div
                 key={question.id}
-                className={`p-4 rounded-lg border-2 transition-colors cursor-pointer ${
+                className={`p-4 rounded-lg border-2 transition-colors ${
                   question.status === 'pinned' 
                     ? 'border-yellow-400 bg-yellow-50' 
                     : question.status === 'answered'
                     ? 'border-green-200 bg-green-50'
                     : 'border-gray-200 bg-white hover:border-blue-300'
-                }`}
-                onClick={() => onQuestionClick?.(question)}
+                } ${isAdminMode && question.status !== 'answered' ? 'hover:border-green-400' : ''}`}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2">
@@ -281,7 +442,147 @@ export default function QA({
                     {formatTime(question.created_at)}
                   </span>
                 </div>
-                <p className="text-sm text-gray-700">{question.content}</p>
+                <p className="text-sm text-gray-700 mb-2">{question.content}</p>
+                
+                {/* 답변 표시 */}
+                {question.status === 'answered' && question.answer && (
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-green-700">답변</span>
+                        {question.answered_at && (
+                          <span className="text-xs text-gray-500">
+                            답변 시간: {formatTime(question.answered_at)}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setExpandedAnswers((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(question.id)) {
+                              next.delete(question.id)
+                            } else {
+                              next.add(question.id)
+                            }
+                            return next
+                          })
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                      >
+                        {isAnswerExpanded ? (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                            </svg>
+                            접기
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                            답변 보기
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    {isAnswerExpanded && (
+                      <div className="mt-2 p-3 bg-green-50 rounded-lg">
+                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{question.answer}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* 액션 버튼들 */}
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  {/* 관리자 모드: 답변하기 버튼 */}
+                  {isAdminMode && question.status !== 'answered' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleQuestionClick(question)
+                      }}
+                      className="text-xs text-green-600 hover:text-green-800 font-medium"
+                    >
+                      답변하기
+                    </button>
+                  )}
+                  
+                  {/* 관리자 모드: 질문 삭제 버튼 */}
+                  {isAdminMode && (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (!confirm('이 질문을 삭제하시겠습니까?')) return
+                        
+                        try {
+                          const response = await fetch(`/api/questions/${question.id}`, {
+                            method: 'DELETE',
+                          })
+                          
+                          if (!response.ok) {
+                            const result = await response.json()
+                            throw new Error(result.error || '질문 삭제 실패')
+                          }
+                          
+                          // 질문 목록 새로고침
+                          await loadQuestions()
+                        } catch (error: any) {
+                          console.error('질문 삭제 실패:', error)
+                          alert(error.message || '질문 삭제에 실패했습니다')
+                        }
+                      }}
+                      className="text-xs text-red-600 hover:text-red-800 font-medium"
+                    >
+                      삭제
+                    </button>
+                  )}
+                  
+                  {/* 참여자 모드: 자신의 질문 수정/삭제 */}
+                  {!isAdminMode && currentUserId && question.user_id === currentUserId && question.status !== 'answered' && (
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEditingQuestion(question)
+                          setEditContent(question.content)
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        수정
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          if (!confirm('이 질문을 삭제하시겠습니까?')) return
+                          
+                          try {
+                            const response = await fetch(`/api/questions/${question.id}`, {
+                              method: 'DELETE',
+                            })
+                            
+                            if (!response.ok) {
+                              const result = await response.json()
+                              throw new Error(result.error || '질문 삭제 실패')
+                            }
+                            
+                            // 질문 목록 새로고침
+                            await loadQuestions()
+                          } catch (error: any) {
+                            console.error('질문 삭제 실패:', error)
+                            alert(error.message || '질문 삭제에 실패했습니다')
+                          }
+                        }}
+                        className="text-xs text-red-600 hover:text-red-800 font-medium"
+                      >
+                        삭제
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             )
           })
@@ -313,6 +614,195 @@ export default function QA({
             </button>
           </div>
         </form>
+      )}
+      
+      {/* 질문 수정 모달 */}
+      {editingQuestion && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">질문 수정</h3>
+                <button
+                  onClick={() => {
+                    setEditingQuestion(null)
+                    setEditContent('')
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  질문 내용
+                </label>
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  placeholder="질문을 입력하세요..."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4"
+                  rows={4}
+                  maxLength={1000}
+                  disabled={editing}
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingQuestion(null)
+                      setEditContent('')
+                    }}
+                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                    disabled={editing}
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!editContent.trim() || editing) return
+                      
+                      setEditing(true)
+                      try {
+                        const response = await fetch(`/api/questions/${editingQuestion.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            content: editContent.trim(),
+                          }),
+                        })
+                        
+                        const result = await response.json()
+                        
+                        if (!response.ok || result.error) {
+                          throw new Error(result.error || '질문 수정 실패')
+                        }
+                        
+                        // 질문 목록 새로고침
+                        await loadQuestions()
+                        setEditingQuestion(null)
+                        setEditContent('')
+                      } catch (error: any) {
+                        console.error('질문 수정 실패:', error)
+                        alert(error.message || '질문 수정에 실패했습니다')
+                      } finally {
+                        setEditing(false)
+                      }
+                    }}
+                    disabled={!editContent.trim() || editing}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                  >
+                    {editing ? '수정 중...' : '수정 완료'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 관리자 모드: 질문 답변 모달 */}
+      {isAdminMode && selectedQuestion && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            // 답변 중이 아닐 때만 배경 클릭으로 닫기
+            if (!answering && e.target === e.currentTarget) {
+              setSelectedQuestion(null)
+              setAnswerText('')
+            }
+          }}
+        >
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">질문 답변</h3>
+                <button
+                  onClick={() => {
+                    if (!answering) {
+                      setSelectedQuestion(null)
+                      setAnswerText('')
+                    }
+                  }}
+                  disabled={answering}
+                  className={`text-gray-400 hover:text-gray-600 ${answering ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              {/* 질문 내용 */}
+              <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-semibold text-gray-800">
+                    {selectedQuestion.user?.display_name || selectedQuestion.user?.email || '익명'}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {formatTime(selectedQuestion.created_at)}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-700">{selectedQuestion.content}</p>
+              </div>
+              
+              {/* 답변 입력 */}
+              {selectedQuestion.status !== 'answered' ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    답변 작성
+                  </label>
+                  <textarea
+                    value={answerText}
+                    onChange={(e) => setAnswerText(e.target.value)}
+                    placeholder="답변을 입력하세요..."
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4"
+                    rows={4}
+                    maxLength={1000}
+                    disabled={answering}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => {
+                        if (!answering) {
+                          setSelectedQuestion(null)
+                          setAnswerText('')
+                        }
+                      }}
+                      className={`px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors ${answering ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      disabled={answering}
+                    >
+                      취소
+                    </button>
+                    <button
+                      onClick={handleAnswer}
+                      disabled={!answerText.trim() || answering}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                    >
+                      {answering ? '답변 중...' : '답변 등록'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-green-50 rounded-lg">
+                  <div className="text-sm text-green-800 font-medium mb-2">이미 답변된 질문입니다</div>
+                  {selectedQuestion.answered_at && (
+                    <div className="text-xs text-green-600 mb-2">
+                      답변 시간: {formatTime(selectedQuestion.answered_at)}
+                    </div>
+                  )}
+                  {selectedQuestion.answer && (
+                    <div className="mt-3 p-3 bg-white rounded-lg border border-green-200">
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{selectedQuestion.answer}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

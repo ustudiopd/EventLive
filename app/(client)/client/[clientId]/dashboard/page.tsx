@@ -105,12 +105,20 @@ export default async function ClientDashboard({
                         {webinar.start_time ? new Date(webinar.start_time).toLocaleString('ko-KR') : '일정 미정'}
                       </div>
                     </div>
-                    <Link 
-                      href={`/webinar/${webinar.id}`}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                    >
-                      보기 →
-                    </Link>
+                    <div className="flex gap-2">
+                      <Link 
+                        href={`/webinar/${webinar.id}`}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                      >
+                        웨비나링크
+                      </Link>
+                      <Link 
+                        href={`/webinar/${webinar.id}/live?admin=true`}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                      >
+                        관리자 접속
+                      </Link>
+                    </div>
                   </div>
                 ))}
               </div>
