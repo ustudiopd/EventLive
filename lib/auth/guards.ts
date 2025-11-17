@@ -12,27 +12,59 @@ export async function requireAuth() {
 
 export async function requireSuperAdmin() {
   const { user, supabase } = await requireAuth()
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_super_admin')
-    .eq('id', user.id)
-    .single()
   
-  if (!profile?.is_super_admin) {
+  // JWT app_metadata에서 슈퍼어드민 권한 확인 (RLS 재귀 방지)
+  let isSuperAdmin = !!user?.app_metadata?.is_super_admin
+  
+  // JWT에 app_metadata가 없을 경우 fallback: Admin Supabase로 확인
+  // (JWT 토큰 갱신 전까지 임시 조치)
+  if (!isSuperAdmin) {
+    try {
+      const { createAdminSupabase } = await import('@/lib/supabase/admin')
+      const admin = createAdminSupabase()
+      const { data: profile } = await admin
+        .from('profiles')
+        .select('is_super_admin')
+        .eq('id', user.id)
+        .maybeSingle()
+      
+      isSuperAdmin = !!profile?.is_super_admin
+      
+      if (isSuperAdmin) {
+        console.warn('⚠️  JWT에 app_metadata가 없습니다. 재로그인하여 JWT 토큰을 갱신하세요.')
+      }
+    } catch (error) {
+      console.error('프로필 확인 오류:', error)
+    }
+  }
+  
+  if (!isSuperAdmin) {
     redirect('/')
   }
+  
+  // 프로필 정보는 필요시에만 조회 (슈퍼어드민은 모든 프로필 접근 가능하므로 선택적)
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('display_name, email, is_super_admin')
+    .eq('id', user.id)
+    .maybeSingle()
+  
   return { user, supabase, profile }
 }
 
 export async function requireAgencyMember(agencyId: string, roles: string[] = ['owner', 'admin']) {
   const { user, supabase } = await requireAuth()
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_super_admin')
-    .eq('id', user.id)
-    .single()
   
-  if (profile?.is_super_admin) {
+  // JWT app_metadata에서 슈퍼어드민 권한 확인 (RLS 재귀 방지)
+  const isSuperAdmin = !!user?.app_metadata?.is_super_admin
+  
+  if (isSuperAdmin) {
+    // 프로필 정보는 필요시에만 조회
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('display_name, email, is_super_admin')
+      .eq('id', user.id)
+      .maybeSingle()
     return { user, supabase, profile, role: 'super_admin' as const }
   }
   
@@ -47,20 +79,38 @@ export async function requireAgencyMember(agencyId: string, roles: string[] = ['
     redirect('/')
   }
   
+  // 프로필 정보 조회
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('display_name, email, is_super_admin')
+    .eq('id', user.id)
+    .maybeSingle()
+  
   return { user, supabase, profile, role: member.role }
 }
 
 export async function requireClientMember(clientId: string, roles: string[] = ['owner', 'admin', 'operator']) {
   const { user, supabase } = await requireAuth()
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_super_admin')
-    .eq('id', user.id)
-    .single()
   
-  if (profile?.is_super_admin) {
+  // JWT app_metadata에서 슈퍼어드민 권한 확인 (RLS 재귀 방지)
+  const isSuperAdmin = !!user?.app_metadata?.is_super_admin
+  
+  if (isSuperAdmin) {
+    // 프로필 정보는 필요시에만 조회
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('display_name, email, is_super_admin')
+      .eq('id', user.id)
+      .maybeSingle()
     return { user, supabase, profile, role: 'super_admin' as const }
   }
+  
+  // 프로필 정보 조회
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('display_name, email, is_super_admin')
+    .eq('id', user.id)
+    .maybeSingle()
   
   // 클라이언트 멤버십 확인
   const { data: member } = await supabase

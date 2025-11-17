@@ -261,6 +261,33 @@
   - 발표자료 관리 탭
   - 추첨 관리 탭
 
+## [2025-01-XX] 슈퍼어드민 기능 구현 완료
+- ✅ 슈퍼어드민 계정 생성 (`scripts/seed-super-admin.ts`)
+  - JWT `app_metadata`에 `is_super_admin` 저장
+  - "admin" 이메일 별칭 지원
+- ✅ 슈퍼어드민 대시보드 (`/super/dashboard`)
+  - 전체 통계 (에이전시, 클라이언트, 웨비나 수)
+  - 최근 에이전시/클라이언트 목록
+  - Admin Supabase 사용으로 성능 최적화
+- ✅ 에이전시 관리 페이지 (`/super/agencies`)
+  - 전체 에이전시 목록 조회
+  - 에이전시 생성 기능
+  - 에이전시 삭제 기능 (CASCADE로 연관 클라이언트도 삭제)
+- ✅ 클라이언트 관리 페이지 (`/super/clients`)
+  - 전체 클라이언트 목록 조회
+  - 클라이언트 삭제 기능 (CASCADE로 연관 웨비나도 삭제)
+- ✅ RLS 무한 재귀 문제 해결
+  - JWT `app_metadata` 기반 권한 확인으로 전환
+  - `profiles` 테이블 RLS 정책 단순화
+  - Admin Supabase를 통한 서버 측 데이터 조회
+- ✅ 삭제 API 구현
+  - `/api/super/agencies/[agencyId]` DELETE
+  - `/api/super/clients/[clientId]` DELETE
+  - 감사 로그 기록
+- ✅ 인증 가드 개선 (`lib/auth/guards.ts`)
+  - JWT `app_metadata` 기반 슈퍼어드민 확인
+  - Fallback 메커니즘 (JWT 갱신 전 호환성)
+
 ## 남은 작업
 
 ### Phase 3 - 웨비나 및 실시간 기능 (대부분 완료)

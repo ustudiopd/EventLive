@@ -20,24 +20,41 @@ export default function Home() {
   const [checking, setChecking] = useState(true)
   const [webinars, setWebinars] = useState<Webinar[]>([])
   const [loadingWebinars, setLoadingWebinars] = useState(true)
+  const [user, setUser] = useState<any>(null)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   
   useEffect(() => {
     async function checkUserAndRedirect() {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
+        const { data: { user: currentUser } } = await supabase.auth.getUser()
         
-        if (!user) {
+        if (!currentUser) {
           setChecking(false)
           return
         }
         
+        setUser(currentUser)
+        
         // API를 통해 대시보드 경로 가져오기 (서버 사이드에서 RLS 정책 적용)
         const response = await fetch('/api/auth/dashboard')
-        const { dashboard } = await response.json()
+        const result = await response.json()
+        const { dashboard } = result
         
         if (dashboard) {
+          // 슈퍼어드민인 경우 즉시 리다이렉트
+          if (dashboard === '/super/dashboard') {
+            setIsSuperAdmin(true)
+            router.push(dashboard)
+            return
+          }
           router.push(dashboard)
           return
+        }
+        
+        // 슈퍼어드민 여부 확인 (JWT app_metadata 사용 - RLS 재귀 방지)
+        // 클라이언트에서는 직접 DB 조회하지 않고 JWT에서 확인
+        if (currentUser?.app_metadata?.is_super_admin) {
+          setIsSuperAdmin(true)
         }
         
         setChecking(false)
@@ -87,6 +104,16 @@ export default function Home() {
           <h1 className="text-6xl font-bold mb-6 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
             EventLive.ai
           </h1>
+          {isSuperAdmin && (
+            <div className="mt-6">
+              <Link
+                href="/super/dashboard"
+                className="inline-block px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl"
+              >
+                🎛️ 슈퍼 관리자 대시보드
+              </Link>
+            </div>
+          )}
         </div>
         
         <div className="max-w-6xl mx-auto mt-20">

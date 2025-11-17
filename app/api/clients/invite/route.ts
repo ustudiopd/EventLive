@@ -47,7 +47,19 @@ export async function POST(req: Request) {
     }
     
     // 초대 링크 생성
-    const inviteLink = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/signup/client?token=${token}`
+    // 환경 변수가 있으면 우선 사용, 없으면 요청 헤더에서 동적으로 생성
+    let baseUrl = process.env.NEXT_PUBLIC_APP_URL
+    
+    if (!baseUrl) {
+      // 요청 헤더에서 프로토콜과 호스트 추출
+      // Vercel에서는 x-forwarded-proto 헤더를 제공
+      const protocol = req.headers.get('x-forwarded-proto') || 
+                      (req.url.startsWith('https://') ? 'https' : 'http')
+      const host = req.headers.get('host') || 'localhost:3000'
+      baseUrl = `${protocol}://${host}`
+    }
+    
+    const inviteLink = `${baseUrl}/signup/client?token=${token}`
     
     // 감사 로그
     await admin

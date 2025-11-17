@@ -15,8 +15,12 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     
+    // "admin"을 이메일로 사용하는 경우 처리
+    // Supabase Auth는 이메일 형식을 요구하므로, "admin"을 "admin@eventlive.ai"로 변환
+    const loginEmail = email === 'admin' ? 'admin@eventlive.ai' : email
+    
     const { error, data } = await supabase.auth.signInWithPassword({
-      email,
+      email: loginEmail,
       password,
     })
     
@@ -65,11 +69,11 @@ export default function LoginPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">이메일</label>
             <input
-              type="email"
+              type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              placeholder="your@email.com"
+              placeholder="admin 또는 your@email.com"
               required
             />
           </div>

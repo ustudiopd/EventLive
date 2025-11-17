@@ -9,9 +9,9 @@ export async function POST(req: Request) {
     const { user } = await requireSuperAdmin()
     const { name, ownerEmail } = await req.json()
     
-    if (!name || !ownerEmail) {
+    if (!name) {
       return NextResponse.json(
-        { error: 'name and ownerEmail are required' },
+        { error: 'name is required' },
         { status: 400 }
       )
     }

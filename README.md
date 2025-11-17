@@ -43,7 +43,16 @@ B2B2C 멀티테넌시 웨비나 플랫폼
 NEXT_PUBLIC_SUPABASE_URL=https://yqsayphssjznthrxpgfb.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# 앱 URL (선택사항 - 설정하지 않으면 요청 헤더에서 자동 감지)
+# 로컬 개발: http://localhost:3000
+# 프로덕션: https://your-domain.com
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
+
+**참고**: `NEXT_PUBLIC_APP_URL`은 클라이언트 초대 링크 생성에 사용됩니다. 
+- 설정하지 않으면 요청 헤더에서 자동으로 감지합니다 (Vercel 배포 시 자동 처리)
+- 명시적으로 설정하면 해당 URL을 사용합니다
 
 2. 패키지 설치:
 

@@ -14,14 +14,10 @@ export async function GET() {
     return NextResponse.json({ dashboard: null })
   }
   
-  // 슈퍼 관리자 확인
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_super_admin')
-    .eq('id', user.id)
-    .single()
+  // 슈퍼 관리자 확인 (JWT app_metadata 사용 - RLS 재귀 방지)
+  const isSuperAdmin = !!user?.app_metadata?.is_super_admin
   
-  if (profile?.is_super_admin) {
+  if (isSuperAdmin) {
     return NextResponse.json({ dashboard: '/super/dashboard' })
   }
   
