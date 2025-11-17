@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -57,6 +57,28 @@ export default function WebinarView({ webinar, isAdminMode = false }: WebinarVie
   const fullscreenRef = useRef<HTMLDivElement>(null)
   const supabase = createClientSupabase()
   const router = useRouter()
+  
+  // Chat 컴포넌트를 한 번만 렌더링하여 중복 구독 방지 (해결책.md 권장사항)
+  const chatComponent = useMemo(() => (
+    <Chat
+      key={`chat-${webinar.id}`}
+      webinarId={webinar.id}
+      canSend={true}
+      maxMessages={50}
+      isAdminMode={isAdminMode}
+    />
+  ), [webinar.id, isAdminMode])
+  
+  // QA 컴포넌트를 한 번만 렌더링하여 중복 구독 방지
+  const qaComponent = useMemo(() => (
+    <QA
+      key={`qa-${webinar.id}`}
+      webinarId={webinar.id}
+      canAsk={true}
+      showOnlyMine={false}
+      isAdminMode={isAdminMode}
+    />
+  ), [webinar.id, isAdminMode])
   
   useEffect(() => {
     setMounted(true)
@@ -722,25 +744,9 @@ export default function WebinarView({ webinar, isAdminMode = false }: WebinarVie
                   </button>
                 </div>
                 
-                {/* 탭 컨텐츠 - 모바일 전용 (데스크톱과 분리하여 중복 구독 방지) */}
+                {/* 탭 컨텐츠 - 모바일 전용 (단일 인스턴스 사용) */}
                 <div className="flex-1 overflow-hidden">
-                  {activeTab === 'chat' ? (
-                    <Chat
-                      key={`chat-mobile-${webinar.id}`}
-                      webinarId={webinar.id}
-                      canSend={true}
-                      maxMessages={50}
-                      isAdminMode={isAdminMode}
-                    />
-                  ) : (
-                    <QA
-                      key={`qa-mobile-${webinar.id}`}
-                      webinarId={webinar.id}
-                      canAsk={true}
-                      showOnlyMine={false}
-                      isAdminMode={isAdminMode}
-                    />
-                  )}
+                  {activeTab === 'chat' ? chatComponent : qaComponent}
                 </div>
               </div>
             </div>
@@ -773,25 +779,9 @@ export default function WebinarView({ webinar, isAdminMode = false }: WebinarVie
                 </button>
               </div>
               
-              {/* 탭 컨텐츠 - 모바일과 동일한 인스턴스 사용 (중복 구독 방지) */}
+              {/* 탭 컨텐츠 - 데스크톱 전용 (단일 인스턴스 사용) */}
               <div className="flex-1 overflow-hidden">
-                {activeTab === 'chat' ? (
-                  <Chat
-                    key={`chat-desktop-${webinar.id}`}
-                    webinarId={webinar.id}
-                    canSend={true}
-                    maxMessages={50}
-                    isAdminMode={isAdminMode}
-                  />
-                ) : (
-                  <QA
-                    key={`qa-desktop-${webinar.id}`}
-                    webinarId={webinar.id}
-                    canAsk={true}
-                    showOnlyMine={false}
-                    isAdminMode={isAdminMode}
-                  />
-                )}
+                {activeTab === 'chat' ? chatComponent : qaComponent}
               </div>
             </div>
           </div>

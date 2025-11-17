@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClientSupabase } from '@/lib/supabase/client'
 
 interface Message {
@@ -77,7 +77,8 @@ export default function Chat({
   const channelRef = useRef<any>(null) // 현재 채널 참조 (cleanup용)
   const isSettingUpRef = useRef<boolean>(false) // 채널 설정 중 플래그
   const channelNameRef = useRef<string | null>(null) // 현재 채널명 (cleanup용)
-  const supabase = createClientSupabase()
+  // Supabase 클라이언트를 useMemo로 명시적 고정 (해결책.md 권장사항)
+  const supabase = useMemo(() => createClientSupabase(), [])
   
   // 최근 메시지만 유지하는 윈도우 크기 (50~100개)
   const MAX_MESSAGES_WINDOW = 100
@@ -424,10 +425,11 @@ export default function Chat({
   
   // 메시지 로드 및 Realtime 구독
   useEffect(() => {
-    // webinarId가 변경되면 초기 로드 리셋
+    // webinarId가 변경되면 초기 로드 리셋 및 재시도 횟수 리셋
     if (lastWebinarIdRef.current !== webinarId) {
       initialLoadTimeRef.current = 0
       lastWebinarIdRef.current = webinarId
+      reconnectTriesRef.current = 0 // webinarId 변경 시 재시도 횟수 리셋
     }
     
     // 초기 로드는 한 번만 실행 (재연결 시에는 메시지 유지)
@@ -445,6 +447,12 @@ export default function Chat({
       // 이미 설정 중이면 무시
       if (isSettingUpRef.current) {
         console.log('채널 설정이 이미 진행 중입니다. 무시합니다.')
+        return
+      }
+      
+      // 3회 이상 실패했고 폴백이 활성화되어 있으면 재연결 시도하지 않음
+      if (reconnectTriesRef.current >= 3 && fallbackOn) {
+        console.log('재연결 시도 횟수 초과, 폴백 모드 유지')
         return
       }
       
@@ -810,9 +818,9 @@ export default function Chat({
             } : null,
           })
           
-          // 3회 실패 시 폴백 활성화
+          // 3회 실패 시 폴백 활성화 및 재연결 중단
           if (reconnectTriesRef.current >= 3) {
-            console.warn('🔴 실시간 구독 3회 실패, 폴백 폴링 활성화')
+            console.warn('🔴 실시간 구독 3회 실패, 폴백 폴링 활성화 (재연결 중단)')
             setFallbackOn(true)
             
             // 기존 타이머 취소
@@ -821,13 +829,17 @@ export default function Chat({
               reconnectTimeoutRef.current = null
             }
             
-            // 폴백 재연결 타이머 설정
-            fallbackReconnectTimeoutRef.current = setTimeout(() => {
-              console.log('🔄 폴백 모드에서 재연결 시도 (메시지 유지)')
-              reconnectTriesRef.current = 0 // 재시도 횟수 리셋
-              setReconnectKey(prev => prev + 1) // 재연결 시도 (초기 로드는 건너뜀)
-              fallbackReconnectTimeoutRef.current = null
-            }, 30000) // 30초 후 재연결 시도
+            // 폴백 모드에서는 재연결을 더 이상 시도하지 않음
+            // 대신 주기적으로 재연결 시도 (더 긴 간격으로)
+            if (!fallbackReconnectTimeoutRef.current) {
+              fallbackReconnectTimeoutRef.current = setTimeout(() => {
+                console.log('🔄 폴백 모드에서 재연결 시도 (60초 후)')
+                reconnectTriesRef.current = 0 // 재시도 횟수 리셋
+                setFallbackOn(false) // 폴백 비활성화하여 재연결 시도
+                setReconnectKey(prev => prev + 1) // 재연결 시도 (초기 로드는 건너뜀)
+                fallbackReconnectTimeoutRef.current = null
+              }, 60000) // 60초 후 재연결 시도 (더 긴 간격)
+            }
             return
           }
           
@@ -934,8 +946,7 @@ export default function Chat({
   // 조건부 폴백 폴링 (증분 로드만 수행 - 새 메시지만 가져오기)
   useEffect(() => {
     if (!fallbackOn) {
-      console.log('🛑 폴백 폴링 비활성화')
-      return
+      return // 폴백이 비활성화되면 아무것도 하지 않음 (로그 제거)
     }
     
     // 가시성 및 온라인 상태 확인
@@ -943,20 +954,19 @@ export default function Chat({
     const isOnline = navigator.onLine
     
     if (!isVisible || !isOnline) {
-      console.log('⏸️ 폴백 폴링 일시 정지 (가시성/오프라인)')
-      return
+      return // 가시성/오프라인 상태면 아무것도 하지 않음 (로그 제거)
     }
     
     console.log('🔄 폴백 폴링 시작 (증분 로드 - 새 메시지만)')
     
     // 지터가 포함된 폴링 함수
     let isPollingActive = true
+    const pollingTimeouts: NodeJS.Timeout[] = [] // 모든 폴링 타이머 추적
     
     const pollWithJitter = async () => {
       // 폴백이 비활성화되었으면 중지
-      if (!isPollingActive) {
-        console.log('🛑 폴백 폴링 중지 (폴백 비활성화됨)')
-        return
+      if (!fallbackOn || !isPollingActive) {
+        return // 로그 제거하여 반복 로그 방지
       }
       
       // 가시성 및 온라인 상태 확인 (폴링 중에도 체크)
@@ -968,7 +978,11 @@ export default function Chat({
         const base = 15000 // 15초 기본
         const jitter = 5000 - Math.random() * 10000 // ±5초
         const nextDelay = base + jitter + pollBackoffRef.current
-        setTimeout(pollWithJitter, nextDelay)
+        // 폴백이 여전히 활성화되어 있을 때만 다음 폴링 예약
+        if (fallbackOn && isPollingActive) {
+          const timeout = setTimeout(pollWithJitter, nextDelay)
+          pollingTimeouts.push(timeout)
+        }
         return
       }
       
@@ -1014,7 +1028,10 @@ export default function Chat({
           const base = 15000 // 15초 기본 (3초 → 15초로 증가)
           const jitter = 5000 - Math.random() * 10000 // ±5초
           const nextDelay = base + jitter + pollBackoffRef.current
-          setTimeout(pollWithJitter, nextDelay)
+          if (fallbackOn && isPollingActive) {
+            const timeout = setTimeout(pollWithJitter, nextDelay)
+            pollingTimeouts.push(timeout)
+          }
           return
         }
         
@@ -1093,11 +1110,16 @@ export default function Chat({
       const jitter = 5000 - Math.random() * 10000 // ±5초
       const nextDelay = base + jitter + pollBackoffRef.current
       
-      setTimeout(pollWithJitter, nextDelay)
+      // 폴백이 여전히 활성화되어 있을 때만 다음 폴링 예약
+      if (fallbackOn && isPollingActive) {
+        const timeout = setTimeout(pollWithJitter, nextDelay)
+        pollingTimeouts.push(timeout)
+      }
     }
     
     // 초기 폴링 시작
     const timeoutId = setTimeout(pollWithJitter, 0)
+    pollingTimeouts.push(timeoutId)
     
     // 가시성/온라인 상태 변경 감지
     const handleVisibilityChange = () => {
@@ -1120,9 +1142,10 @@ export default function Chat({
     window.addEventListener('online', handleOnline)
     
     return () => {
-      console.log('🛑 폴백 폴링 중지')
       isPollingActive = false
-      clearTimeout(timeoutId)
+      // 모든 폴링 타이머 취소
+      pollingTimeouts.forEach(timeout => clearTimeout(timeout))
+      pollingTimeouts.length = 0 // 배열 비우기
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('online', handleOnline)
     }
