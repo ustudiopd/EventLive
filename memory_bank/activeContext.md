@@ -61,6 +61,9 @@
 - ✅ 추첨 당첨자 이름 표시 기능 구현
 - ✅ 추첨 실행 애니메이션 구현
 - ✅ 메시지 전송 후 새로고침/초기화 문제 해결 (초기 로드 한 번만 실행, Realtime 재연결 시 메시지 유지)
+- ✅ Realtime 연결 원인코드 로깅 강화 (채널 subscribe 콜백에서 상세 에러 정보 로깅)
+- ✅ RLS 정책 분석 및 확인 (messages 테이블 RLS 정책 정상 작동 확인)
+- ✅ Supabase Publication 설정 확인 (messages 테이블이 Realtime Publication에 포함됨 확인)
 
 ## 5. 현재 시스템 상태
 - **데이터베이스**: Supabase PostgreSQL (RLS 활성화)

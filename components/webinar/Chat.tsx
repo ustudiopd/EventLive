@@ -738,7 +738,18 @@ export default function Chat({
         }
       )
       .subscribe(async (status, err) => {
-        console.log('실시간 구독 상태:', status, err)
+        // 상세한 로깅 (디버깅 개선)
+        console.log('실시간 구독 상태:', {
+          status,
+          channel: channelName,
+          error: err ? {
+            message: err.message,
+            code: (err as any)?.code,
+            reason: (err as any)?.reason,
+            wasClean: (err as any)?.wasClean,
+            error: err,
+          } : null,
+        })
         
         if (status === 'SUBSCRIBED') {
           reconnectTriesRef.current = 0
@@ -752,7 +763,21 @@ export default function Chat({
           reconnectTriesRef.current++
           const delay = Math.min(1000 * Math.pow(2, reconnectTriesRef.current - 1), 10000)
           
-          console.warn(`⚠️ 실시간 구독 실패 (${status}), ${delay}ms 후 재시도... (${reconnectTriesRef.current}/3)`)
+          // 상세한 에러 정보 로깅
+          console.warn(`⚠️ 실시간 구독 실패 (${status})`, {
+            status,
+            channel: channelName,
+            retryCount: reconnectTriesRef.current,
+            maxRetries: 3,
+            nextRetryDelay: delay,
+            error: err ? {
+              message: err.message,
+              code: (err as any)?.code,
+              reason: (err as any)?.reason,
+              wasClean: (err as any)?.wasClean,
+              error: err,
+            } : null,
+          })
           
           // 3회 실패 시 폴백 활성화
           if (reconnectTriesRef.current >= 3) {

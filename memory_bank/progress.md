@@ -295,6 +295,14 @@
   - `webinarId` 변경 감지 및 초기 로드 리셋 (`lastWebinarIdRef` 추적)
   - 304 Not Modified 응답 처리 개선 (에러로 처리하지 않음)
   - Realtime INSERT 이벤트 중복 메시지 방지 (`id`, `client_msg_id` 기반)
+- ✅ Realtime 연결 디버깅 개선
+  - 채널 subscribe 콜백에서 상세한 에러 정보 로깅 (status, error code, reason, wasClean)
+  - 재시도 횟수 및 다음 재시도 지연 시간 로깅
+  - 디버깅을 위한 구조화된 로그 출력
+- ✅ RLS 정책 및 Supabase 설정 확인
+  - messages 테이블 RLS 정책 분석 및 정상 작동 확인
+  - Supabase Realtime Publication 설정 확인 (messages 테이블 포함 확인)
+  - 관련 뷰(me, my_agencies, my_clients) 정의 확인
 
 ## 남은 작업
 
