@@ -288,6 +288,14 @@
   - JWT `app_metadata` 기반 슈퍼어드민 확인
   - Fallback 메커니즘 (JWT 갱신 전 호환성)
 
+## [2025-01-XX] 채팅 시스템 안정성 개선
+- ✅ 메시지 전송 후 새로고침/초기화 문제 해결
+  - 초기 로드는 한 번만 실행 (`initialLoadTimeRef` 추적)
+  - Realtime 구독 재연결 시 메시지 유지 (초기 로드 건너뛰기)
+  - `webinarId` 변경 감지 및 초기 로드 리셋 (`lastWebinarIdRef` 추적)
+  - 304 Not Modified 응답 처리 개선 (에러로 처리하지 않음)
+  - Realtime INSERT 이벤트 중복 메시지 방지 (`id`, `client_msg_id` 기반)
+
 ## 남은 작업
 
 ### Phase 3 - 웨비나 및 실시간 기능 (대부분 완료)

@@ -71,6 +71,7 @@ export default function Chat({
   const initialLoadTimeRef = useRef<number>(0) // 초기 로드 완료 시간
   const etagRef = useRef<string | null>(null) // ETag 캐시
   const pollBackoffRef = useRef<number>(0) // 폴링 백오프 (에러 시 증가)
+  const lastWebinarIdRef = useRef<string | null>(null) // 마지막 webinarId 추적
   const supabase = createClientSupabase()
   
   // 최근 메시지만 유지하는 윈도우 크기 (50~100개)
@@ -418,7 +419,17 @@ export default function Chat({
   
   // 메시지 로드 및 Realtime 구독
   useEffect(() => {
-    loadMessages(true) // 초기 로드
+    // webinarId가 변경되면 초기 로드 리셋
+    if (lastWebinarIdRef.current !== webinarId) {
+      initialLoadTimeRef.current = 0
+      lastWebinarIdRef.current = webinarId
+    }
+    
+    // 초기 로드는 한 번만 실행 (재연결 시에는 메시지 유지)
+    const isInitialLoad = initialLoadTimeRef.current === 0
+    if (isInitialLoad) {
+      loadMessages(true) // 초기 로드만 실행
+    }
     
     // 고정 채널명 사용 (중복 구독 방지)
     const channelName = `webinar:${webinarId}:messages`
@@ -556,33 +567,42 @@ export default function Chat({
                     }
                   }
                   
-                  // client_msg_id로 optimistic 메시지 정확 교체
-                  const optimisticIndex = prev.findIndex(m => {
-                    if (!m.isOptimistic) return false
-                    if (newMsg.client_msg_id) {
-                      // client_msg_id가 있으면 정확 매칭
-                      return m.client_msg_id === newMsg.client_msg_id
-                    }
-                    // 하위 호환성: client_msg_id가 없으면 기존 방식 사용
-                    return m.user_id === newMsg.user_id && m.content === newMsg.content
-                  })
-                  
-                  if (optimisticIndex !== -1) {
-                    // Optimistic 메시지를 실제 메시지로 교체
-                    // fetchProfile에서 이미 관리자 여부를 확인하여 "관리자"로 표시하도록 처리됨
-                    const finalUser = profileWithDisplayName || prev[optimisticIndex].user
-                    
-                    const updated = [...prev]
-                    updated[optimisticIndex] = {
-                      ...newMsg,
-                      user: finalUser,
-                      isOptimistic: false,
-                    }
-                    return updated
-                  }
-                  
-                  // 새 메시지 추가 (중복 방지)
-                  if (prev.some(m => m.id === newMsg.id)) return prev
+              // 중복 방지: 이미 같은 ID나 client_msg_id가 있으면 무시
+              if (prev.some(m => {
+                // ID로 중복 확인
+                if (m.id === newMsg.id) return true
+                // client_msg_id로 중복 확인 (Optimistic 메시지와 실제 메시지 매칭)
+                if (newMsg.client_msg_id && m.client_msg_id === newMsg.client_msg_id) return true
+                return false
+              })) {
+                console.log('중복 메시지 무시 (Realtime):', newMsg.id, newMsg.client_msg_id)
+                return prev
+              }
+              
+              // client_msg_id로 optimistic 메시지 정확 교체
+              const optimisticIndex = prev.findIndex(m => {
+                if (!m.isOptimistic) return false
+                if (newMsg.client_msg_id) {
+                  // client_msg_id가 있으면 정확 매칭
+                  return m.client_msg_id === newMsg.client_msg_id
+                }
+                // 하위 호환성: client_msg_id가 없으면 기존 방식 사용
+                return m.user_id === newMsg.user_id && m.content === newMsg.content
+              })
+              
+              if (optimisticIndex !== -1) {
+                // Optimistic 메시지를 실제 메시지로 교체
+                // fetchProfile에서 이미 관리자 여부를 확인하여 "관리자"로 표시하도록 처리됨
+                const finalUser = profileWithDisplayName || prev[optimisticIndex].user
+                
+                const updated = [...prev]
+                updated[optimisticIndex] = {
+                  ...newMsg,
+                  user: finalUser,
+                  isOptimistic: false,
+                }
+                return updated
+              }
                   
                   // fetchProfile에서 이미 관리자 여부를 확인하여 "관리자"로 표시하도록 처리됨
                   const finalUser = profileWithDisplayName
@@ -633,7 +653,15 @@ export default function Chat({
                     }
                   }
                   
-                  if (prev.some(m => m.id === newMsg.id)) return prev
+                  // 중복 방지: 이미 같은 ID나 client_msg_id가 있으면 무시
+                  if (prev.some(m => {
+                    if (m.id === newMsg.id) return true
+                    if (newMsg.client_msg_id && m.client_msg_id === newMsg.client_msg_id) return true
+                    return false
+                  })) {
+                    console.log('중복 메시지 무시 (Realtime, 프로필 오류):', newMsg.id, newMsg.client_msg_id)
+                    return prev
+                  }
                   
                   const optimisticIndex = prev.findIndex(m => {
                     if (!m.isOptimistic) return false
@@ -730,11 +758,11 @@ export default function Chat({
           if (reconnectTriesRef.current >= 3) {
             console.warn('🔴 실시간 구독 3회 실패, 폴백 폴링 활성화')
             setFallbackOn(true)
-            // 폴백 활성화 후에도 주기적으로 재연결 시도
+            // 폴백 활성화 후에도 주기적으로 재연결 시도 (메시지는 유지)
             setTimeout(() => {
-              console.log('🔄 폴백 모드에서 재연결 시도')
+              console.log('🔄 폴백 모드에서 재연결 시도 (메시지 유지)')
               reconnectTriesRef.current = 0 // 재시도 횟수 리셋
-              setReconnectKey(prev => prev + 1) // 재연결 시도
+              setReconnectKey(prev => prev + 1) // 재연결 시도 (초기 로드는 건너뜀)
             }, 30000) // 30초 후 재연결 시도
             return
           }
@@ -750,17 +778,17 @@ export default function Chat({
             console.warn('토큰 재주입 실패:', tokenError)
           }
           
-          // 재연결 시도 (reconnectKey 변경으로 useEffect 재실행)
+          // 재연결 시도 (reconnectKey 변경으로 useEffect 재실행, 단 메시지는 유지)
           setTimeout(() => {
             // 채널 정리
             channel.unsubscribe().then(() => {
               supabase.removeChannel(channel)
-              console.log('채널 정리 완료, 재연결 시도')
+              console.log('채널 정리 완료, 재연결 시도 (메시지 유지)')
             }).catch(() => {
               // 무시 (이미 정리되었을 수 있음)
             })
             
-            // reconnectKey 변경으로 useEffect 재실행
+            // reconnectKey 변경으로 useEffect 재실행 (초기 로드는 건너뜀)
             setReconnectKey(prev => prev + 1)
           }, delay)
         }
