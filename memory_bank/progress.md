@@ -327,6 +327,28 @@
   - registrations 테이블 복합 인덱스 추가 (webinar_id, user_id)
   - 예상 성능 향상: SELECT 5-10배, INSERT 10-20배, UPDATE/DELETE 50-100배
 
+## [2025-01-XX] Broadcast 중심 아키텍처 전환 완료
+- ✅ Phase 1: 채널 전환
+  - `BroadcastEnvelope` 타입 정의 (`lib/webinar/realtime.ts`)
+  - Chat 컴포넌트에서 `postgres_changes` → `broadcast` 전환
+  - 재연결 로직 단순화 (SDK 자동 재연결 활용, 3회 실패 시 채널 제거)
+  - RLS 영향 제거로 성능 향상 및 무한 재귀 문제 해소
+- ✅ Phase 2: 송신 경로 개선
+  - 서버 API에서 Broadcast 전파 구현 (`lib/webinar/broadcast.ts`)
+  - 메시지 생성/업데이트/삭제 API에 Broadcast 전파 추가
+  - API → DB insert → Broadcast 순서 확정
+  - 권한 검증은 API/DB RLS에서 처리
+- ✅ Phase 3: 이벤트 타입 확장
+  - 퀴즈/설문/추첨 이벤트 타입 정의 (quiz:open, quiz:close, poll:open, poll:close, raffle:draw 등)
+  - Forms API에 Broadcast 전파 추가 (상태 변경 시)
+  - Giveaways API에 Broadcast 전파 추가 (추첨 실행 시)
+  - Chat 컴포넌트에 이벤트 타입별 처리 로직 추가
+- ✅ 주요 개선사항
+  - RLS 영향 제거: `postgres_changes` → `broadcast`로 전환하여 RLS 무한 재귀 문제 해소
+  - 재연결 안정화: SDK 자동 재연결 활용, 3회 실패 시 채널 제거로 무한 루프 방지
+  - 성능 향상: Broadcast는 RLS를 거치지 않아 지연 시간 감소
+  - 확장성: 단일 채널(`webinar:${webinarId}`)로 모든 이벤트 타입 처리 가능
+
 ## 남은 작업
 
 ### Phase 3 - 웨비나 및 실시간 기능 (대부분 완료)

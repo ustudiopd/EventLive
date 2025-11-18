@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { createAdminSupabase } from '@/lib/supabase/admin'
+import { broadcastChatMessage } from '@/lib/webinar/broadcast'
 
 export const runtime = 'nodejs'
 
@@ -84,6 +85,25 @@ export async function POST(req: Request) {
         { status: 500 }
       )
     }
+    
+    // Phase 2: DB insert 성공 후 Broadcast 전파
+    // 프로필 정보를 포함한 메시지 payload 생성
+    const messagePayload = {
+      id: message.id,
+      webinar_id: message.webinar_id,
+      user_id: message.user_id,
+      content: message.content,
+      created_at: message.created_at,
+      hidden: message.hidden ?? false,
+      client_msg_id: message.client_msg_id || undefined,
+    }
+    
+    // Broadcast 전파 (비동기, 실패해도 응답은 성공)
+    broadcastChatMessage(webinarId, messagePayload, user.id, clientMsgId || undefined)
+      .catch((error) => {
+        console.error('Broadcast 전파 실패 (응답은 성공):', error)
+        // Broadcast 실패해도 DB insert는 성공했으므로 응답은 성공
+      })
     
     // 성공 응답 (일관된 스키마)
     return NextResponse.json({ 

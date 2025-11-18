@@ -1,16 +1,15 @@
 # 현재 작업 상황 (Active Context)
 
 ## 1. 현재 집중하고 있는 작업  
-- **작업명**: Realtime 연결 안정성 개선 완료
+- **작업명**: Broadcast 중심 아키텍처 전환 완료
 - **목표**: 
-  - Realtime 연결 끊김 문제 해결
-  - 메모리 누수 방지
-  - 중복 구독 방지
+  - `postgres_changes` → `broadcast` 전환으로 RLS 영향 제거
+  - 재연결 안정화 (SDK 자동 재연결 활용)
+  - 이벤트 타입 확장 (퀴즈/설문/추첨)
 - **상태**: ✅ 완료
-  - 재연결 로직 개선 (setTimeout cleanup)
-  - 기존 채널 정리 개선 (비동기 대기)
-  - Chat 컴포넌트 중복 렌더링 방지
-  - 채널 참조 관리 개선
+  - Phase 1: 채널 전환 (postgres_changes → broadcast)
+  - Phase 2: 송신 경로 개선 (서버 API에서 Broadcast 전파)
+  - Phase 3: 이벤트 타입 확장 (quiz, poll, raffle)
 
 ## 2. 다음 예정 작업  
 - **우선순위 높음**: 
@@ -71,6 +70,12 @@
   - 기존 채널 정리 개선 (비동기 대기로 중복 구독 방지)
   - Chat 컴포넌트 중복 렌더링 방지 (key prop으로 인스턴스 분리)
   - 채널 참조 관리 개선 (channelRef 사용)
+- ✅ Broadcast 중심 아키텍처 전환 완료
+  - Phase 1: `postgres_changes` → `broadcast` 전환 (RLS 영향 제거)
+  - Phase 2: 서버 API에서 Broadcast 전파 구현 (권한 검증 강화)
+  - Phase 3: 이벤트 타입 확장 (quiz, poll, raffle)
+  - 재연결 로직 단순화 (SDK 자동 재연결 활용, 3회 실패 시 채널 제거)
+  - 단일 채널(`webinar:${webinarId}`)로 모든 이벤트 타입 처리
 
 ## 5. 현재 시스템 상태
 - **데이터베이스**: Supabase PostgreSQL (RLS 활성화)

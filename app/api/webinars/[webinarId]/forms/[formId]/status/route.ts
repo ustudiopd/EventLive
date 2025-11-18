@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminSupabase } from '@/lib/supabase/admin'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { requireAuth } from '@/lib/auth/guards'
+import { broadcastQuizOpen, broadcastQuizClose, broadcastPollOpen, broadcastPollClose } from '@/lib/webinar/broadcast'
 
 export const runtime = 'nodejs'
 
@@ -119,6 +120,25 @@ export async function PATCH(
         action: 'FORM_STATUS_CHANGE',
         payload: { form_id: formId, status },
       })
+    
+    // Phase 3: DB update 성공 후 Broadcast 전파
+    if (status === 'open') {
+      if (form.kind === 'quiz') {
+        broadcastQuizOpen(webinarId, updatedForm, user.id)
+          .catch((error) => console.error('Broadcast 전파 실패:', error))
+      } else {
+        broadcastPollOpen(webinarId, updatedForm, user.id)
+          .catch((error) => console.error('Broadcast 전파 실패:', error))
+      }
+    } else if (status === 'closed') {
+      if (form.kind === 'quiz') {
+        broadcastQuizClose(webinarId, updatedForm, user.id)
+          .catch((error) => console.error('Broadcast 전파 실패:', error))
+      } else {
+        broadcastPollClose(webinarId, updatedForm, user.id)
+          .catch((error) => console.error('Broadcast 전파 실패:', error))
+      }
+    }
     
     return NextResponse.json({ success: true, form: updatedForm })
   } catch (error: any) {

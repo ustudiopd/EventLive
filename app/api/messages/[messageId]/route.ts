@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireClientMember, requireAuth } from '@/lib/auth/guards'
 import { createAdminSupabase } from '@/lib/supabase/admin'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { broadcastChatUpdate, broadcastChatDelete } from '@/lib/webinar/broadcast'
 
 export const runtime = 'nodejs'
 
@@ -102,7 +103,7 @@ export async function PATCH(
       .from('messages')
       .update({ hidden: hidden ?? true })
       .eq('id', messageId)
-      .select()
+      .select('id, webinar_id, user_id, content, created_at, hidden, client_msg_id, agency_id, client_id')
       .single()
     
     if (updateError) {
@@ -122,6 +123,22 @@ export async function PATCH(
         webinar_id: updatedMessage.webinar_id,
         action: 'MESSAGE_UPDATE',
         payload: { messageId, hidden }
+      })
+    
+    // Phase 2: DB update 성공 후 Broadcast 전파
+    const messagePayload = {
+      id: updatedMessage.id,
+      webinar_id: updatedMessage.webinar_id,
+      user_id: updatedMessage.user_id,
+      content: updatedMessage.content,
+      created_at: updatedMessage.created_at,
+      hidden: updatedMessage.hidden ?? false,
+      client_msg_id: updatedMessage.client_msg_id || undefined,
+    }
+    
+    broadcastChatUpdate(message.webinar_id, messagePayload, user.id)
+      .catch((error) => {
+        console.error('Broadcast 전파 실패 (응답은 성공):', error)
       })
     
     return NextResponse.json({ success: true, message: updatedMessage })
@@ -247,6 +264,12 @@ export async function DELETE(
         webinar_id: message.webinar_id,
         action: 'MESSAGE_DELETE',
         payload: { messageId }
+      })
+    
+    // Phase 2: DB delete 성공 후 Broadcast 전파
+    broadcastChatDelete(message.webinar_id, parseInt(messageId), user.id)
+      .catch((error) => {
+        console.error('Broadcast 전파 실패 (응답은 성공):', error)
       })
     
     return NextResponse.json({ success: true })

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminSupabase } from '@/lib/supabase/admin'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { requireAuth } from '@/lib/auth/guards'
+import { broadcastRaffleDraw } from '@/lib/webinar/broadcast'
 
 export const runtime = 'nodejs'
 
@@ -160,6 +161,13 @@ export async function POST(
           winners_count: winners?.length || 0,
         },
       })
+    
+    // Phase 3: DB draw 성공 후 Broadcast 전파
+    broadcastRaffleDraw(webinarId, {
+      giveaway: updatedGiveaway,
+      winners: formattedWinners,
+    }, user.id)
+      .catch((error) => console.error('Broadcast 전파 실패:', error))
     
     return NextResponse.json({
       success: true,

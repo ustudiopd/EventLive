@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClientSupabase } from '@/lib/supabase/client'
+import type { BroadcastEnvelope, ChatMessagePayload } from '@/lib/webinar/realtime'
+import { isValidBroadcastEnvelope } from '@/lib/webinar/realtime'
 
 interface Message {
   id: number | string // 임시 메시지는 문자열 ID 사용
@@ -471,23 +473,27 @@ export default function Chat({
           await new Promise(resolve => setTimeout(resolve, 100))
         }
         
-        // 실시간 구독
+        // 실시간 구독 (Broadcast 중심 아키텍처)
         const channel = supabase
       .channel(channelName, {
         config: {
           broadcast: { self: false }, // 자신의 메시지는 제외 (Optimistic Update로 처리)
+          presence: currentUser?.id ? { key: currentUser.id } : undefined,
         },
       })
       .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'messages',
-          filter: `webinar_id=eq.${webinarId}`,
-        },
-        (payload) => {
-          console.log('실시간 메시지 이벤트:', payload.eventType, payload)
+        'broadcast',
+        { event: '*' },
+        (payload: any) => {
+          // BroadcastEnvelope 구조로 변환
+          const env = payload?.payload as BroadcastEnvelope<ChatMessagePayload> | undefined
+          
+          if (!isValidBroadcastEnvelope(env)) {
+            console.warn('잘못된 Broadcast Envelope:', payload)
+            return
+          }
+          
+          console.log('실시간 Broadcast 이벤트:', env.t, env)
           
           lastEventAt.current = Date.now() // 이벤트 수신 시간 업데이트
           reconnectTriesRef.current = 0 // 재연결 시도 횟수 리셋
@@ -498,8 +504,9 @@ export default function Chat({
             setFallbackOn(false)
           }
           
-          if (payload.eventType === 'INSERT') {
-            const newMsg = payload.new as any
+          // 이벤트 타입별 처리
+          if (env.t === 'chat:new') {
+            const newMsg = env.payload as ChatMessagePayload
             if (newMsg && !newMsg.hidden) {
               console.log('새 메시지 수신:', newMsg)
               
@@ -722,11 +729,11 @@ export default function Chat({
                 })
               })
             }
-          } else if (payload.eventType === 'UPDATE') {
+          } else if (env.t === 'chat:update') {
             // 업데이트된 메시지 반영 (id 필수 확인)
-            const updatedMsg = payload.new as any
+            const updatedMsg = env.payload as ChatMessagePayload
             if (!updatedMsg?.id) {
-              console.warn('UPDATE 이벤트에 id가 없습니다:', payload)
+              console.warn('UPDATE 이벤트에 id가 없습니다:', env)
               return
             }
             
@@ -752,14 +759,28 @@ export default function Chat({
               
               return updated
             })
-          } else if (payload.eventType === 'DELETE') {
+          } else if (env.t === 'chat:delete') {
             // 삭제된 메시지 제거 (id 필수 확인)
-            const deletedMsg = payload.old as any
+            const deletedMsg = env.payload as { id: number }
             if (!deletedMsg?.id) {
-              console.warn('DELETE 이벤트에 id가 없습니다:', payload)
+              console.warn('DELETE 이벤트에 id가 없습니다:', env)
               return
             }
             setMessages((prev) => prev.filter((msg) => msg.id !== deletedMsg.id))
+          }
+          // Phase 3: 다른 이벤트 타입 처리
+          else if (env.t === 'quiz:open' || env.t === 'quiz:close') {
+            // 퀴즈 열기/닫기 이벤트 (FormWidget에서 처리)
+            console.log('퀴즈 이벤트 수신:', env.t, env.payload)
+            // 필요시 상위 컴포넌트로 전달할 수 있음
+          } else if (env.t === 'poll:open' || env.t === 'poll:close') {
+            // 설문 열기/닫기 이벤트 (FormWidget에서 처리)
+            console.log('설문 이벤트 수신:', env.t, env.payload)
+            // 필요시 상위 컴포넌트로 전달할 수 있음
+          } else if (env.t === 'raffle:start' || env.t === 'raffle:draw' || env.t === 'raffle:done') {
+            // 추첨 이벤트 (GiveawayWidget에서 처리)
+            console.log('추첨 이벤트 수신:', env.t, env.payload)
+            // 필요시 상위 컴포넌트로 전달할 수 있음
           }
         }
       )
@@ -818,9 +839,9 @@ export default function Chat({
             } : null,
           })
           
-          // 3회 실패 시 폴백 활성화 및 재연결 중단
+          // 3회 실패 시 폴백 활성화 및 채널 제거 (SDK 자동 재연결 중단)
           if (reconnectTriesRef.current >= 3) {
-            console.warn('🔴 실시간 구독 3회 실패, 폴백 폴링 활성화 (재연결 중단)')
+            console.warn('🔴 실시간 구독 3회 실패, 폴백 폴링 활성화 (채널 제거로 재연결 중단)')
             setFallbackOn(true)
             
             // 기존 타이머 취소
@@ -829,36 +850,48 @@ export default function Chat({
               reconnectTimeoutRef.current = null
             }
             
-            // 폴백 모드에서는 재연결을 더 이상 시도하지 않음
-            // 대신 주기적으로 재연결 시도 (더 긴 간격으로)
+            // 채널을 완전히 제거하여 SDK의 자동 재연결 중단
+            const ch = channelRef.current
+            if (ch) {
+              console.log('채널 제거 중 (SDK 자동 재연결 중단)')
+              ch.unsubscribe().then(() => {
+                supabase.removeChannel(ch)
+                channelRef.current = null
+                isSettingUpRef.current = false
+              }).catch((err: unknown) => {
+                console.warn('채널 제거 오류:', err)
+                channelRef.current = null
+                isSettingUpRef.current = false
+              })
+            }
+            
+            // 30초 후 재연결 시도 (채널 재생성)
             if (!fallbackReconnectTimeoutRef.current) {
               fallbackReconnectTimeoutRef.current = setTimeout(() => {
-                console.log('🔄 폴백 모드에서 재연결 시도 (60초 후)')
+                console.log('🔄 폴백 모드에서 재연결 시도 (30초 후)')
                 reconnectTriesRef.current = 0 // 재시도 횟수 리셋
                 setFallbackOn(false) // 폴백 비활성화하여 재연결 시도
                 setReconnectKey(prev => prev + 1) // 재연결 시도 (초기 로드는 건너뜀)
                 fallbackReconnectTimeoutRef.current = null
-              }, 60000) // 60초 후 재연결 시도 (더 긴 간격)
+              }, 30000) // 30초 후 재연결 시도
             }
             return
           }
           
-          // 토큰 재주입 시도
+          // 3회 미만 실패 시: SDK 자동 재연결에 맡김 (수동 재연결 제거)
+          // 토큰만 재주입하고 SDK가 자동으로 재연결 시도
           try {
             const { data: { session } } = await supabase.auth.getSession()
             if (session?.access_token) {
               supabase.realtime.setAuth(session.access_token)
-              console.log('토큰 재주입 완료')
+              console.log('토큰 재주입 완료 (SDK 자동 재연결 대기)')
             }
           } catch (tokenError) {
             console.warn('토큰 재주입 실패:', tokenError)
           }
           
-          // 재연결 타이머 설정 (채널 정리하지 않음 - cleanup이 처리)
-          reconnectTimeoutRef.current = setTimeout(() => {
-            setReconnectKey(prev => prev + 1)
-            reconnectTimeoutRef.current = null
-          }, delay)
+          // 수동 재연결 타이머 제거 (SDK 자동 재연결 활용)
+          // SDK가 자동으로 재연결을 시도하므로 우리는 상태만 통지
         }
       })
       
