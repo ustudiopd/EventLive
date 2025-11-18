@@ -82,6 +82,7 @@ export default function Sidebar() {
       return [
         { name: '대시보드', href: `/client/${clientId}/dashboard`, icon: '📊' },
         { name: '웨비나', href: `/client/${clientId}/webinars`, icon: '🎥' },
+        { name: '가입계정관리', href: `/client/${clientId}/accounts`, icon: '👥' },
         { name: '브랜딩', href: `/client/${clientId}/settings/branding`, icon: '🎨' },
         { name: '계정 설정', href: '/settings/profile', icon: '⚙️' },
       ]
