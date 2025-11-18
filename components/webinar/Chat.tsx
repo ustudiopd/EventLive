@@ -304,6 +304,16 @@ export default function Chat({
           
           // 버퍼링된 이벤트 중 chat:new 이벤트만 처리
           bufferedEvents.forEach((env) => {
+            // 버퍼링된 이벤트도 mid 중복 체크
+            if (env?.mid && typeof env.mid === 'string') {
+              const seen = seenMidRef.current
+              if (seen.has(env.mid)) {
+                console.log('📦 버퍼링된 이벤트 중복(mid) 무시:', env.mid)
+                return // 중복이면 스킵
+              }
+              seen.add(env.mid)
+            }
+            
             if (env.t === 'chat:new') {
               const newMsg = env.payload as ChatMessagePayload
               if (newMsg && !newMsg.hidden) {
@@ -565,23 +575,12 @@ export default function Chat({
             return
           }
           
-          console.log('실시간 Broadcast 이벤트:', env.t, env)
-          
-          lastEventAt.current = Date.now() // 이벤트 수신 시간 업데이트
-          reconnectTriesRef.current = 0 // 재연결 시도 횟수 리셋
-          
-          // 이벤트 수신 시 폴백 끄기 (실시간 구독이 정상 작동 중)
-          if (fallbackOn) {
-            console.log('✅ 실시간 이벤트 수신, 폴백 폴링 비활성화')
-            setFallbackOn(false)
-          }
-          
-          // 해결책.md 3번: envelope 단위 중복 제거 (mid 기반)
+          // 해결책.md 3번: envelope 단위 중복 제거 (mid 기반) - 가장 먼저 체크
           if (env?.mid && typeof env.mid === 'string') {
             const seen = seenMidRef.current
             if (seen.has(env.mid)) {
               console.log('중복 envelope(mid) 무시:', env.mid)
-              return
+              return // 중복이면 즉시 리턴 (아래 로직 실행 안 함)
             }
             seen.add(env.mid)
             // 메모리 보호 (최대 2000개만 유지)
@@ -591,6 +590,17 @@ export default function Chat({
                 seen.delete(first)
               }
             }
+          }
+          
+          console.log('실시간 Broadcast 이벤트:', env.t, env)
+          
+          lastEventAt.current = Date.now() // 이벤트 수신 시간 업데이트
+          reconnectTriesRef.current = 0 // 재연결 시도 횟수 리셋
+          
+          // 이벤트 수신 시 폴백 끄기 (실시간 구독이 정상 작동 중)
+          if (fallbackOn) {
+            console.log('✅ 실시간 이벤트 수신, 폴백 폴링 비활성화')
+            setFallbackOn(false)
           }
           
           // 이벤트 타입별 처리
@@ -1611,10 +1621,15 @@ export default function Chat({
         ) : messages.length === 0 ? (
           <div className="text-center text-gray-500 py-8 text-xs sm:text-sm">아직 메시지가 없습니다</div>
         ) : (
-          messages.map((message) => {
+          messages.map((message, index) => {
+            // React key를 고유하게 만들기: id + client_msg_id + index 조합
+            const uniqueKey = message.client_msg_id 
+              ? `${message.id}-${message.client_msg_id}` 
+              : `${message.id}-${index}`
+            
             if (renderMessage) {
               return (
-                <div key={message.id} onClick={() => onMessageClick?.(message)}>
+                <div key={uniqueKey} onClick={() => onMessageClick?.(message)}>
                   {renderMessage(message)}
                 </div>
               )
@@ -1622,7 +1637,7 @@ export default function Chat({
             
             return (
               <div
-                key={message.id}
+                key={uniqueKey}
                 className={`hover:bg-gray-50 p-1.5 sm:p-2 rounded-lg transition-colors ${
                   message.isOptimistic ? 'opacity-70' : ''
                 } ${onMessageClick ? 'cursor-pointer' : ''}`}
