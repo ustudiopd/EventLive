@@ -89,7 +89,7 @@ export async function requireAgencyMember(agencyId: string, roles: string[] = ['
   return { user, supabase, profile, role: member.role }
 }
 
-export async function requireClientMember(clientId: string, roles: string[] = ['owner', 'admin', 'operator']) {
+export async function requireClientMember(clientId: string, roles: string[] = ['owner', 'admin', 'operator', 'member']) {
   const { user, supabase } = await requireAuth()
   
   // JWT app_metadata에서 슈퍼어드민 권한 확인 (RLS 재귀 방지)

@@ -26,6 +26,7 @@ export default async function ClientDashboard({
     operator: '운영자',
     analyst: '분석가',
     viewer: '조회자',
+    member: '멤버',
   }
   
   const { data: client } = await supabase
