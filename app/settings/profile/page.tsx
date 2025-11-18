@@ -15,8 +15,10 @@ export default function ProfileSettingsPage() {
     id: string
     display_name: string | null
     email: string | null
+    nickname: string | null
   } | null>(null)
   const [displayName, setDisplayName] = useState('')
+  const [nickname, setNickname] = useState('')
 
   useEffect(() => {
     loadProfile()
@@ -30,25 +32,21 @@ export default function ProfileSettingsPage() {
         return
       }
 
-      // 프로필 정보 조회
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, display_name, email')
-        .eq('id', user.id)
-        .single()
-
-      if (profileError) {
-        console.error('프로필 조회 오류:', profileError)
-        setError('프로필 정보를 불러올 수 없습니다')
-        return
+      // API를 통해 프로필 정보 조회 (RLS 문제 해결)
+      const response = await fetch(`/api/profiles/${user.id}`)
+      if (!response.ok) {
+        throw new Error('프로필 정보를 불러올 수 없습니다')
       }
 
-      const profile = profileData as { id: string; display_name: string | null; email: string | null } | null
+      const result = await response.json()
+      const profile = result.profile as { id: string; display_name: string | null; email: string | null; nickname: string | null } | null
+      
       setProfile(profile)
       setDisplayName(profile?.display_name || '')
+      setNickname(profile?.nickname || '')
     } catch (err: any) {
       console.error('프로필 로드 오류:', err)
-      setError('프로필 정보를 불러오는 중 오류가 발생했습니다')
+      setError(err.message || '프로필 정보를 불러오는 중 오류가 발생했습니다')
     } finally {
       setLoading(false)
     }
@@ -66,6 +64,7 @@ export default function ProfileSettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           display_name: displayName.trim(),
+          nickname: nickname.trim() || null,
         }),
       })
 
@@ -140,20 +139,38 @@ export default function ProfileSettingsPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                이름 (닉네임) <span className="text-red-500">*</span>
+                이름 <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="이름 또는 닉네임을 입력하세요"
+                placeholder="이름을 입력하세요"
                 required
                 maxLength={100}
                 disabled={saving}
               />
               <p className="mt-1 text-sm text-gray-500">
-                채팅 및 대시보드에 표시될 이름입니다
+                대시보드에 표시될 이름입니다
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                닉네임 <span className="text-gray-400 text-xs">(선택사항)</span>
+              </label>
+              <input
+                type="text"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder="채팅에 사용할 닉네임을 입력하세요"
+                maxLength={50}
+                disabled={saving}
+              />
+              <p className="mt-1 text-sm text-gray-500">
+                채팅에 표시될 닉네임입니다. 입력하지 않으면 이름이 표시됩니다
               </p>
             </div>
 

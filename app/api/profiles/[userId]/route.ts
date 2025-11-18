@@ -21,7 +21,7 @@ export async function GET(
     if (userId === user.id) {
       const { data: profile, error } = await admin
         .from('profiles')
-        .select('id, display_name, email')
+        .select('id, display_name, email, nickname')
         .eq('id', userId)
         .single()
       
@@ -39,7 +39,7 @@ export async function GET(
     // (간단하게 Admin으로 조회 - RLS 우회)
     const { data: profile, error } = await admin
       .from('profiles')
-      .select('id, display_name, email')
+      .select('id, display_name, email, nickname')
       .eq('id', userId)
       .single()
     

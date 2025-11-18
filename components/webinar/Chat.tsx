@@ -126,7 +126,7 @@ export default function Chat({
             profile = result.profile
           }
           
-          // displayName 결정: nickname > display_name > email > '익명'
+          // displayName 결정: registrations.nickname > profiles.nickname > display_name > email > '익명'
           let displayName = '익명'
           // API 응답에서 registration 정보 확인 (nickname 포함)
           const registrationData = await fetch(`/api/webinars/${webinarId}/check-registration?userId=${user.id}`)
@@ -134,10 +134,16 @@ export default function Chat({
             .catch(() => null)
           
           if (registrationData?.nickname) {
+            // 웨비나별 닉네임이 최우선
             displayName = registrationData.nickname
+          } else if ((profile as any)?.nickname) {
+            // 프로필 기본 닉네임
+            displayName = (profile as any).nickname
           } else if ((profile as any)?.display_name) {
+            // 이름
             displayName = (profile as any).display_name
           } else if ((profile as any)?.email) {
+            // 이메일
             displayName = (profile as any).email
           }
           
@@ -161,19 +167,27 @@ export default function Chat({
             .eq('user_id', user.id)
             .maybeSingle()
           
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('id, display_name, email')
-            .eq('id', user.id)
-            .single()
+          // API를 통해 프로필 정보 조회 (nickname 포함)
+          const profileResponse = await fetch(`/api/profiles/${user.id}`)
+          let profile = null
+          if (profileResponse.ok) {
+            const result = await profileResponse.json()
+            profile = result.profile
+          }
           
-          // displayName 결정: nickname > display_name > email > '익명'
+          // displayName 결정: registrations.nickname > profiles.nickname > display_name > email > '익명'
           let displayName = '익명'
           if ((registration as any)?.nickname) {
+            // 웨비나별 닉네임이 최우선
             displayName = (registration as any).nickname
+          } else if ((profile as any)?.nickname) {
+            // 프로필 기본 닉네임
+            displayName = (profile as any).nickname
           } else if ((profile as any)?.display_name) {
+            // 이름
             displayName = (profile as any).display_name
           } else if ((profile as any)?.email) {
+            // 이메일
             displayName = (profile as any).email
           }
           
@@ -657,13 +671,19 @@ export default function Chat({
                   
                   const registration = registrationResponse.data as { role?: string; nickname?: string } | null
                   
-                  // displayName 결정: nickname > display_name > email > '익명'
+                  // displayName 결정: registrations.nickname > profiles.nickname > display_name > email > '익명'
                   let displayName = '익명'
                   if ((registration as any)?.nickname) {
+                    // 웨비나별 닉네임이 최우선
                     displayName = (registration as any).nickname
+                  } else if ((profile as any)?.nickname) {
+                    // 프로필 기본 닉네임
+                    displayName = (profile as any).nickname
                   } else if ((profile as any)?.display_name) {
+                    // 이름
                     displayName = (profile as any).display_name
                   } else if ((profile as any)?.email) {
+                    // 이메일
                     displayName = (profile as any).email
                   }
                   
@@ -1502,25 +1522,39 @@ export default function Chat({
       }
     }
     
-    // nickname 조회 (웨비나별 닉네임 우선 사용)
-    let displayName = userProfile.display_name || userProfile.email || '익명'
+    // displayName 결정: registrations.nickname > profiles.nickname > display_name > email > '익명'
+    let displayName = '익명'
     try {
-      const { data: registration } = await supabase
-        .from('registrations')
-        .select('nickname')
-        .eq('webinar_id', webinarId)
-        .eq('user_id', currentUser.id)
-        .maybeSingle()
+      const [registrationResponse, profileResponse] = await Promise.all([
+        supabase
+          .from('registrations')
+          .select('nickname')
+          .eq('webinar_id', webinarId)
+          .eq('user_id', currentUser.id)
+          .maybeSingle(),
+        fetch(`/api/profiles/${currentUser.id}`).then(res => res.ok ? res.json() : null).catch(() => null)
+      ])
+      
+      const registration = registrationResponse.data as { nickname?: string } | null
+      const profile = profileResponse?.profile
       
       if ((registration as any)?.nickname) {
+        // 웨비나별 닉네임이 최우선
         displayName = (registration as any).nickname
+      } else if (profile?.nickname) {
+        // 프로필 기본 닉네임
+        displayName = profile.nickname
       } else if (userProfile.display_name) {
+        // 이름
         displayName = userProfile.display_name
       } else if (userProfile.email) {
+        // 이메일
         displayName = userProfile.email
       }
     } catch (error) {
       console.warn('등록 정보 조회 실패:', error)
+      // 폴백: 기존 정보 사용
+      displayName = userProfile.display_name || userProfile.email || '익명'
     }
     
     // Optimistic Update: 즉시 UI에 임시 메시지 추가 (프로필 정보 포함)

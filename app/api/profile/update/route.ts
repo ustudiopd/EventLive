@@ -18,7 +18,7 @@ export async function PATCH(req: Request) {
     }
 
     const body = await req.json()
-    const { display_name } = body
+    const { display_name, nickname } = body
 
     // display_name 검증
     if (display_name !== undefined) {
@@ -42,12 +42,31 @@ export async function PATCH(req: Request) {
       }
     }
 
+    // nickname 검증
+    if (nickname !== undefined && nickname !== null) {
+      if (typeof nickname !== 'string') {
+        return NextResponse.json(
+          { error: 'nickname must be a string' },
+          { status: 400 }
+        )
+      }
+      if (nickname.trim().length > 50) {
+        return NextResponse.json(
+          { error: 'nickname must be 50 characters or less' },
+          { status: 400 }
+        )
+      }
+    }
+
     const admin = createAdminSupabase()
 
     // 프로필 업데이트
-    const updateData: { display_name?: string } = {}
+    const updateData: { display_name?: string; nickname?: string | null } = {}
     if (display_name !== undefined) {
       updateData.display_name = display_name.trim()
+    }
+    if (nickname !== undefined) {
+      updateData.nickname = nickname === null || nickname.trim() === '' ? null : nickname.trim()
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -61,7 +80,7 @@ export async function PATCH(req: Request) {
       .from('profiles')
       .update(updateData)
       .eq('id', user.id)
-      .select('id, display_name, email')
+      .select('id, display_name, email, nickname')
       .single()
 
     if (updateError) {

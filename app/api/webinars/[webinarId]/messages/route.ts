@@ -153,7 +153,7 @@ export async function GET(
     if (userIds.length > 0) {
       const { data: profiles } = await admin
         .from('profiles')
-        .select('id, display_name, email, is_super_admin')
+        .select('id, display_name, email, nickname, is_super_admin')
         .in('id', userIds)
       
       if (profiles) {
@@ -224,13 +224,19 @@ export async function GET(
       const profile = profilesMap.get(msg.user_id) || null
       const registration = registrationsMap.get(msg.user_id)
       
-      // displayName 결정: nickname > display_name > email > '익명'
+      // displayName 결정: registrations.nickname > profiles.nickname > display_name > email > '익명'
       let displayName = '익명'
       if (registration?.nickname) {
+        // 웨비나별 닉네임이 최우선
         displayName = registration.nickname
+      } else if (profile?.nickname) {
+        // 프로필 기본 닉네임
+        displayName = profile.nickname
       } else if (profile?.display_name) {
+        // 이름
         displayName = profile.display_name
       } else if (profile?.email) {
+        // 이메일
         displayName = profile.email
       }
       
