@@ -79,6 +79,7 @@ export default function Chat({
   const channelRef = useRef<any>(null) // 현재 채널 참조 (cleanup용)
   const isSettingUpRef = useRef<boolean>(false) // 채널 설정 중 플래그
   const channelNameRef = useRef<string | null>(null) // 현재 채널명 (cleanup용)
+  const manualCloseRef = useRef<boolean>(false) // 수동 종료 플래그 (A번 수정안)
   // Supabase 클라이언트를 useMemo로 명시적 고정 (해결책.md 권장사항)
   const supabase = useMemo(() => createClientSupabase(), [])
   
@@ -462,24 +463,24 @@ export default function Chat({
       isSettingUpRef.current = true
       
       try {
-        // 기존 채널 확인 및 제거 (비동기 대기)
-        const existingChannel = supabase.getChannels().find(
-          ch => ch.topic === `realtime:${channelName}`
-        )
-        if (existingChannel) {
+        // 기존 채널 확인 및 제거 (E번 수정안: 우리가 만든 채널만 정리)
+        const ch = channelRef.current
+        if (ch && ch.topic === `realtime:${channelName}`) {
           console.warn('기존 채널 발견, 제거 중:', channelName)
-          await existingChannel.unsubscribe()
-          supabase.removeChannel(existingChannel)
+          manualCloseRef.current = true // 수동 종료 플래그 설정 (A번 수정안)
+          await ch.unsubscribe()
+          supabase.removeChannel(ch)
+          manualCloseRef.current = false // 플래그 리셋
           // 약간의 지연을 두어 정리가 완전히 완료되도록 함
           await new Promise(resolve => setTimeout(resolve, 100))
         }
         
         // 실시간 구독 (Broadcast 중심 아키텍처)
+        // B번 수정안: presence 제거 (채팅만 사용하므로 필수 아님)
         const channel = supabase
       .channel(channelName, {
         config: {
           broadcast: { self: false }, // 자신의 메시지는 제외 (Optimistic Update로 처리)
-          presence: currentUser?.id ? { key: currentUser.id } : undefined,
         },
       })
       .on(
@@ -822,7 +823,84 @@ export default function Chat({
           
           // 채널 설정 완료 플래그 리셋 (구독 성공 후)
           isSettingUpRef.current = false
-        } else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+        } else if (status === 'CLOSED') {
+          // A번 수정안: 수동 종료인 경우 실패로 카운팅하지 않음
+          if (manualCloseRef.current || !err) {
+            // 정상/수동 종료: 실패로 간주하지 않음
+            console.log('✅ 채널 정상 종료 (수동 해제 또는 에러 없음)')
+            return
+          }
+          // 에러가 있는 CLOSED는 실패로 처리
+          reconnectTriesRef.current++
+          const delay = Math.min(1000 * Math.pow(2, reconnectTriesRef.current - 1), 10000)
+          
+          // 상세한 에러 정보 로깅
+          console.warn(`⚠️ 실시간 구독 실패 (${status})`, {
+            status,
+            channel: channelName,
+            retryCount: reconnectTriesRef.current,
+            maxRetries: 3,
+            nextRetryDelay: delay,
+            error: err ? {
+              message: err.message,
+              code: (err as any)?.code,
+              reason: (err as any)?.reason,
+              wasClean: (err as any)?.wasClean,
+              error: err,
+            } : null,
+          })
+          
+          // 3회 실패 시 폴백 활성화 및 채널 제거 (SDK 자동 재연결 중단)
+          if (reconnectTriesRef.current >= 3) {
+            console.warn('🔴 실시간 구독 3회 실패, 폴백 폴링 활성화 (채널 제거로 재연결 중단)')
+            setFallbackOn(true)
+            
+            // 기존 타이머 취소
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current)
+              reconnectTimeoutRef.current = null
+            }
+            
+            // 채널을 완전히 제거하여 SDK의 자동 재연결 중단
+            const ch = channelRef.current
+            if (ch) {
+              console.log('채널 제거 중 (SDK 자동 재연결 중단)')
+              ch.unsubscribe().then(() => {
+                supabase.removeChannel(ch)
+                channelRef.current = null
+                isSettingUpRef.current = false
+              }).catch((err: unknown) => {
+                console.warn('채널 제거 오류:', err)
+                channelRef.current = null
+                isSettingUpRef.current = false
+              })
+            }
+            
+            // 30초 후 재연결 시도 (채널 재생성)
+            if (!fallbackReconnectTimeoutRef.current) {
+              fallbackReconnectTimeoutRef.current = setTimeout(() => {
+                console.log('🔄 폴백 모드에서 재연결 시도 (30초 후)')
+                reconnectTriesRef.current = 0 // 재시도 횟수 리셋
+                setFallbackOn(false) // 폴백 비활성화하여 재연결 시도
+                setReconnectKey(prev => prev + 1) // 재연결 시도 (초기 로드는 건너뜀)
+                fallbackReconnectTimeoutRef.current = null
+              }, 30000) // 30초 후 재연결 시도
+            }
+            return
+          }
+          
+          // 3회 미만 실패 시: SDK 자동 재연결에 맡김 (수동 재연결 제거)
+          // 토큰만 재주입하고 SDK가 자동으로 재연결 시도
+          try {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (session?.access_token) {
+              supabase.realtime.setAuth(session.access_token)
+              console.log('토큰 재주입 완료 (SDK 자동 재연결 대기)')
+            }
+          } catch (tokenError) {
+            console.warn('토큰 재주입 실패:', tokenError)
+          }
+        } else if (['CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
           reconnectTriesRef.current++
           const delay = Math.min(1000 * Math.pow(2, reconnectTriesRef.current - 1), 10000)
           
@@ -924,20 +1002,24 @@ export default function Chat({
         fallbackReconnectTimeoutRef.current = null
       }
       
-      // 채널 정리 (설정 중이 아닐 때만)
+      // E번 수정안: 우리가 만든 채널만 정리 (간소화)
       const currentChannel = channelRef.current
       const currentChannelName = channelNameRef.current
       
-      if (currentChannel && !isSettingUpRef.current) {
+      if (currentChannel && currentChannel.topic === `realtime:${currentChannelName}` && !isSettingUpRef.current) {
         console.log('실시간 구독 해제:', currentChannelName)
+        // A번 수정안: 수동 종료 플래그 설정
+        manualCloseRef.current = true
         currentChannel.unsubscribe().then(() => {
           supabase.removeChannel(currentChannel)
           channelRef.current = null
           channelNameRef.current = null
+          manualCloseRef.current = false // 플래그 리셋
         }).catch((err: unknown) => {
           console.warn('채널 구독 해제 오류:', err)
           channelRef.current = null
           channelNameRef.current = null
+          manualCloseRef.current = false // 플래그 리셋
         })
       } else if (isSettingUpRef.current) {
         // 설정 중이면 설정 완료 후 정리되도록 대기
@@ -945,16 +1027,20 @@ export default function Chat({
         const checkAndCleanup = () => {
           const channel = channelRef.current
           const channelName = channelNameRef.current
-          if (!isSettingUpRef.current && channel) {
+          if (!isSettingUpRef.current && channel && channel.topic === `realtime:${channelName}`) {
             console.log('실시간 구독 해제 (지연):', channelName)
+            // A번 수정안: 수동 종료 플래그 설정
+            manualCloseRef.current = true
             channel.unsubscribe().then(() => {
               supabase.removeChannel(channel)
               channelRef.current = null
               channelNameRef.current = null
+              manualCloseRef.current = false // 플래그 리셋
             }).catch((err: unknown) => {
               console.warn('채널 구독 해제 오류:', err)
               channelRef.current = null
               channelNameRef.current = null
+              manualCloseRef.current = false // 플래그 리셋
             })
           } else if (isSettingUpRef.current) {
             // 아직 설정 중이면 다시 확인 (최대 5초 대기)
@@ -964,10 +1050,10 @@ export default function Chat({
         setTimeout(checkAndCleanup, 100)
       }
     }
-  }, [webinarId, currentUser?.id, reconnectKey]) // supabase는 싱글턴이므로 dependency에서 제거
+  }, [webinarId, reconnectKey]) // B번 수정안: currentUser?.id 제거 (supabase는 싱글턴이므로 dependency에서 제거)
   
-  // 헬스체크: 3초 동안 이벤트가 없으면 폴백 활성화 (공격적 폴링)
-  // 단, 초기 로드 후 3초 이내에는 헬스체크 비활성화 (Broadcast 이벤트가 없을 수 있음)
+  // C번 수정안: 헬스체크를 채널 상태 기준으로 변경
+  // "이벤트 부재" 대신 "채널 상태"로 판단하여 조용한 시간대에 불필요한 폴백 방지
   useEffect(() => {
     const healthCheckInterval = setInterval(() => {
       // 초기 로드 후 3초 이내에는 헬스체크 비활성화
@@ -976,16 +1062,20 @@ export default function Chat({
         return // 초기 로드 후 3초 이내에는 헬스체크 건너뛰기
       }
       
-      const timeSinceLastEvent = Date.now() - lastEventAt.current
-      if (timeSinceLastEvent > 3000 && !fallbackOn) {
-        console.warn('⚠️ 3초 동안 이벤트 없음, 폴백 폴링 활성화', {
-          timeSinceLastEvent,
+      // 채널 상태 확인 (C번 수정안)
+      const channel = channelRef.current
+      const isJoined = channel?.state === 'joined'
+      
+      // 채널이 joined 상태가 아니고 폴백이 비활성화되어 있으면 폴백 활성화
+      if (!isJoined && !fallbackOn) {
+        console.warn('⚠️ 채널 상태가 joined가 아님, 폴백 폴링 활성화', {
+          channelState: channel?.state,
+          channelTopic: channel?.topic,
           timeSinceInitialLoad,
-          lastEventAt: lastEventAt.current,
         })
         setFallbackOn(true)
       }
-    }, 1000) // 1초마다 체크 (더 빠른 감지)
+    }, 3000) // 3초마다 체크 (채널 상태는 자주 확인할 필요 없음)
     
     return () => clearInterval(healthCheckInterval)
   }, [fallbackOn])
@@ -1036,20 +1126,17 @@ export default function Chat({
       try {
         // 증분 로드: 마지막 메시지 ID 이후의 새 메시지만 가져오기
         const afterParam = lastMessageIdRef.current > 0 ? `&after=${lastMessageIdRef.current}` : ''
-        const headers: HeadersInit = {
-          credentials: 'include', // 쿠키 포함
-        }
         
-        // ETag가 있으면 If-None-Match 헤더 추가
-        if (etagRef.current) {
-          headers['If-None-Match'] = etagRef.current
-        }
+        // D번 수정안: 증분 조회(after=)에는 ETag 제거 (304 오인 방지)
+        const headers: HeadersInit | undefined = afterParam
+          ? undefined // 증분 요청엔 ETag 미사용
+          : (etagRef.current ? { 'If-None-Match': etagRef.current } : undefined)
         
         const response = await fetch(
           `/api/webinars/${webinarId}/messages?limit=20${afterParam}`,
           {
             credentials: 'include', // 쿠키 포함
-            headers: etagRef.current ? { 'If-None-Match': etagRef.current } : undefined,
+            headers,
           }
         )
         
