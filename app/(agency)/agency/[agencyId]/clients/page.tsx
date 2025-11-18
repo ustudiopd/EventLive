@@ -2,7 +2,6 @@ import { requireAgencyMember } from '@/lib/auth/guards'
 import { createServerSupabase } from '@/lib/supabase/server'
 import Link from 'next/link'
 import ClientCreateModal from './components/ClientCreateModal'
-import ClientInviteModal from './components/ClientInviteModal'
 import ClientInviteButton from './components/ClientInviteButton'
 
 export default async function ClientsPage({
@@ -37,7 +36,6 @@ export default async function ClientsPage({
             <p className="text-gray-600">클라이언트를 생성하고 관리하세요</p>
           </div>
           <div className="flex gap-3">
-            <ClientInviteModal agencyId={agencyId} />
             <ClientCreateModal agencyId={agencyId} />
           </div>
         </div>
