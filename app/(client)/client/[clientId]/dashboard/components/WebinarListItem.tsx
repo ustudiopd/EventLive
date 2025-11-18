@@ -33,6 +33,12 @@ export default function WebinarListItem({ webinar }: WebinarListItemProps) {
           웨비나링크
         </Link>
         <Link 
+          href={`/webinar/${webinar.id}/console`}
+          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium whitespace-nowrap"
+        >
+          콘솔
+        </Link>
+        <Link 
           href={`/webinar/${webinar.id}/live?admin=true`}
           className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap"
         >
