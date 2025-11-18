@@ -1,15 +1,15 @@
 # 현재 작업 상황 (Active Context)
 
 ## 1. 현재 집중하고 있는 작업  
-- **작업명**: Broadcast 중심 아키텍처 전환 완료
+- **작업명**: 폴백 폴링 성능 최적화 및 Vercel 프록시 우회
 - **목표**: 
-  - `postgres_changes` → `broadcast` 전환으로 RLS 영향 제거
-  - 재연결 안정화 (SDK 자동 재연결 활용)
-  - 이벤트 타입 확장 (퀴즈/설문/추첨)
+  - 폴백 폴링 지연 시간 단축 (15초 → 3~5초)
+  - Vercel 프록시 우회로 WebSocket 연결 안정화
+  - 사용자 경험 개선 (메시지 수신 지연 감소)
 - **상태**: ✅ 완료
-  - Phase 1: 채널 전환 (postgres_changes → broadcast)
-  - Phase 2: 송신 경로 개선 (서버 API에서 Broadcast 전파)
-  - Phase 3: 이벤트 타입 확장 (quiz, poll, raffle)
+  - 폴백 폴링 주기 단축 (2초)
+  - 헬스체크 대기 시간 단축 (3초)
+  - 원본 Supabase URL 직접 사용
 
 ## 2. 다음 예정 작업  
 - **우선순위 높음**: 
@@ -76,6 +76,12 @@
   - Phase 3: 이벤트 타입 확장 (quiz, poll, raffle)
   - 재연결 로직 단순화 (SDK 자동 재연결 활용, 3회 실패 시 채널 제거)
   - 단일 채널(`webinar:${webinarId}`)로 모든 이벤트 타입 처리
+- ✅ 폴백 폴링 성능 최적화 및 Vercel 프록시 우회
+  - 폴백 폴링 지연 시간 대폭 단축 (15초 → 3~5초)
+  - 헬스체크 대기 시간 단축 (10초 → 3초)
+  - 폴링 주기 단축 (15초 → 2초)
+  - 원본 Supabase URL 직접 사용 (Vercel 프록시 우회)
+  - WebSocket 연결 안정화 (CLOSED 상태 반복 문제 해소)
 
 ## 5. 현재 시스템 상태
 - **데이터베이스**: Supabase PostgreSQL (RLS 활성화)

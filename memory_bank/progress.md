@@ -1,5 +1,22 @@
 # 완료된 작업 내역 (Progress)
 
+## [2025-01-XX] 폴백 폴링 성능 최적화 및 Vercel 프록시 우회
+- ✅ 폴백 폴링 지연 시간 대폭 단축
+  - 헬스체크 대기 시간: 10초 → 3초
+  - 헬스체크 주기: 5초 → 1초
+  - 폴링 주기: 15초 → 2초 (지터 ±0.5초)
+  - 초기 로드 후 대기: 10초 → 3초
+  - 체감 지연 시간: 15초 → 3~5초로 약 70% 단축
+- ✅ Vercel 프록시 우회 구현
+  - 원본 Supabase URL(`*.supabase.co`) 직접 사용
+  - 커스텀 도메인 감지 및 원본 URL 자동 전환
+  - `NEXT_PUBLIC_SUPABASE_ORIGIN_URL` 환경 변수 지원
+  - WebSocket 연결 안정화 (CLOSED 상태 반복 문제 해소)
+- ✅ 주요 개선사항
+  - 사용자 경험: 메시지 수신 지연 대폭 감소
+  - 연결 안정성: Vercel 프록시를 거치지 않아 WebSocket 연결 유지
+  - 성능: 폴링 주기 단축으로 실시간성 향상
+
 ## [2025-01-XX] Realtime 연결 안정성 개선 완료
 - ✅ 재연결 로직 개선 (setTimeout cleanup)
   - `reconnectTimeoutRef`, `fallbackReconnectTimeoutRef` 추가

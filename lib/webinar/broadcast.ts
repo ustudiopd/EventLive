@@ -72,10 +72,18 @@ export async function broadcastToWebinar<T = any>(
     const envelope = createBroadcastEnvelope(eventType, payload, senderId, clientMsgId)
     
     // Broadcast 전파
+    // Supabase Broadcast는 channel.send()에 직접 payload를 전달
     const result = await channel.send({
       type: 'broadcast',
       event: eventType,
-      payload: envelope,
+      payload: envelope, // envelope 전체를 payload로 전달
+    })
+    
+    // 디버깅: Broadcast 전파 시도 로그
+    console.log(`📤 Broadcast 전파 시도: ${eventType} to ${channelName}`, {
+      envelope,
+      channelState: channel.state,
+      result,
     })
     
     if (result === 'ok') {

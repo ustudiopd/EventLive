@@ -441,7 +441,8 @@ export default function Chat({
     }
     
     // 고정 채널명 사용 (중복 구독 방지)
-    const channelName = `webinar:${webinarId}:messages`
+    // Phase 1: Broadcast 중심 아키텍처 - 단일 채널 사용
+    const channelName = `webinar:${webinarId}`
     channelNameRef.current = channelName // cleanup용으로 저장
     
     // 실시간 구독 설정 (기존 채널 정리는 비동기로 처리)
@@ -485,11 +486,13 @@ export default function Chat({
         'broadcast',
         { event: '*' },
         (payload: any) => {
-          // BroadcastEnvelope 구조로 변환
-          const env = payload?.payload as BroadcastEnvelope<ChatMessagePayload> | undefined
+          // Supabase Broadcast payload 구조: { payload: { ... } } 또는 직접 envelope
+          // 서버에서 channel.send({ type: 'broadcast', event: eventType, payload: envelope })로 보내면
+          // 클라이언트에서는 payload.payload로 접근
+          const env = (payload?.payload || payload) as BroadcastEnvelope<ChatMessagePayload> | undefined
           
           if (!isValidBroadcastEnvelope(env)) {
-            console.warn('잘못된 Broadcast Envelope:', payload)
+            console.warn('잘못된 Broadcast Envelope:', payload, 'env:', env)
             return
           }
           
@@ -963,15 +966,26 @@ export default function Chat({
     }
   }, [webinarId, currentUser?.id, reconnectKey]) // supabase는 싱글턴이므로 dependency에서 제거
   
-  // 헬스체크: 10초 동안 이벤트가 없으면 폴백 활성화
+  // 헬스체크: 3초 동안 이벤트가 없으면 폴백 활성화 (공격적 폴링)
+  // 단, 초기 로드 후 3초 이내에는 헬스체크 비활성화 (Broadcast 이벤트가 없을 수 있음)
   useEffect(() => {
     const healthCheckInterval = setInterval(() => {
+      // 초기 로드 후 3초 이내에는 헬스체크 비활성화
+      const timeSinceInitialLoad = Date.now() - initialLoadTimeRef.current
+      if (timeSinceInitialLoad < 3000) {
+        return // 초기 로드 후 3초 이내에는 헬스체크 건너뛰기
+      }
+      
       const timeSinceLastEvent = Date.now() - lastEventAt.current
-      if (timeSinceLastEvent > 10000 && !fallbackOn) {
-        console.warn('⚠️ 10초 동안 이벤트 없음, 폴백 폴링 활성화')
+      if (timeSinceLastEvent > 3000 && !fallbackOn) {
+        console.warn('⚠️ 3초 동안 이벤트 없음, 폴백 폴링 활성화', {
+          timeSinceLastEvent,
+          timeSinceInitialLoad,
+          lastEventAt: lastEventAt.current,
+        })
         setFallbackOn(true)
       }
-    }, 5000) // 5초마다 체크
+    }, 1000) // 1초마다 체크 (더 빠른 감지)
     
     return () => clearInterval(healthCheckInterval)
   }, [fallbackOn])
@@ -1007,9 +1021,9 @@ export default function Chat({
       const isOnline = navigator.onLine
       
       if (!isVisible || !isOnline) {
-        // 가시성/오프라인 상태면 다음 주기에서 재시도
-        const base = 15000 // 15초 기본
-        const jitter = 5000 - Math.random() * 10000 // ±5초
+        // 가시성/오프라인 상태면 다음 주기에서 재시도 (더 긴 간격)
+        const base = 10000 // 10초 기본 (비활성 시)
+        const jitter = 2000 - Math.random() * 4000 // ±2초
         const nextDelay = base + jitter + pollBackoffRef.current
         // 폴백이 여전히 활성화되어 있을 때만 다음 폴링 예약
         if (fallbackOn && isPollingActive) {
@@ -1057,9 +1071,9 @@ export default function Chat({
           pollBackoffRef.current = 0
           lastEventAt.current = Date.now()
           
-          // 다음 폴링 스케줄링
-          const base = 15000 // 15초 기본 (3초 → 15초로 증가)
-          const jitter = 5000 - Math.random() * 10000 // ±5초
+          // 다음 폴링 스케줄링 (공격적 폴링: 2초)
+          const base = 2000 // 2초 기본 (빠른 응답)
+          const jitter = 500 - Math.random() * 1000 // ±0.5초
           const nextDelay = base + jitter + pollBackoffRef.current
           if (fallbackOn && isPollingActive) {
             const timeout = setTimeout(pollWithJitter, nextDelay)
@@ -1138,9 +1152,9 @@ export default function Chat({
         pollBackoffRef.current = Math.min(pollBackoffRef.current * 2 + 5000, 60000)
       }
       
-      // 지터 적용: 기본 15초 ± 5초 랜덤 (3초 → 15초로 증가)
-      const base = 15000
-      const jitter = 5000 - Math.random() * 10000 // ±5초
+      // 지터 적용: 기본 2초 ± 0.5초 랜덤 (공격적 폴링)
+      const base = 2000 // 2초 기본 (빠른 응답)
+      const jitter = 500 - Math.random() * 1000 // ±0.5초
       const nextDelay = base + jitter + pollBackoffRef.current
       
       // 폴백이 여전히 활성화되어 있을 때만 다음 폴링 예약
