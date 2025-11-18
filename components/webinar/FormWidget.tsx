@@ -103,6 +103,10 @@ export default function FormWidget({
               }
             })
             setUserAnswers(answersMap)
+          } else if (result.form.kind === 'survey' && result.userAnswers) {
+            // 설문이고 이미 제출한 경우 답안 표시
+            setUserAnswers(result.userAnswers)
+            setShowSuccess(false) // 설문은 답안 확인 화면 표시
           }
         }
       } catch (err: any) {
@@ -302,7 +306,7 @@ export default function FormWidget({
     )
   }
 
-  // 설문 제출 완료 화면
+  // 설문 제출 완료 화면 (showSuccess가 true일 때만 표시)
   if (submitted && showSuccess && form.kind === 'survey') {
     return (
       <div className={`bg-white rounded-lg shadow p-6 ${className}`}>
@@ -313,11 +317,6 @@ export default function FormWidget({
         </div>
       </div>
     )
-  }
-
-  // 설문의 경우 제출 완료 후 위젯 제거 (showSuccess가 false가 되면)
-  if (submitted && form.kind === 'survey' && !showSuccess) {
-    return null
   }
 
   return (
@@ -363,6 +362,11 @@ export default function FormWidget({
             <p className="text-sm text-blue-800 font-medium">✓ 이미 제출하셨습니다. 정답을 확인하세요.</p>
           </div>
         )}
+        {submitted && form.kind === 'survey' && (
+          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800 font-medium">✓ 이미 설문에 참여하셨습니다. 아래에서 제출한 내용을 확인하실 수 있습니다.</p>
+          </div>
+        )}
       </div>
 
       {/* 문항 목록 */}
@@ -406,10 +410,12 @@ export default function FormWidget({
                   const optionText = typeof option === 'object' ? option.text : option
                   const optionValue = typeof option === 'object' ? option.id : option
                   
-                  // 제출 후 정답 표시
+                  // 제출 후 정답 표시 (퀴즈) 또는 답안 표시 (설문)
                   const isSubmittedQuiz = submitted && form.kind === 'quiz'
+                  const isSubmittedSurvey = submitted && form.kind === 'survey'
                   const result = submissionResult?.questionResults?.find((r: any) => r.questionId === question.id)
-                  const isUserAnswer = isSubmittedQuiz && userAnswers[question.id] === optionValue
+                  const isUserAnswer = (isSubmittedQuiz && userAnswers[question.id] === optionValue) || 
+                                      (isSubmittedSurvey && userAnswers[question.id] === optionValue)
                   const isCorrectAnswer = result?.correctAnswer?.choiceIds?.includes(optionId)
                   const isWrongAnswer = isUserAnswer && !isCorrectAnswer
                   
@@ -417,11 +423,13 @@ export default function FormWidget({
                     <label
                       key={optionId}
                       className={`flex items-center p-3 rounded-lg border-2 ${
-                        isSubmittedQuiz
-                          ? isCorrectAnswer
+                        isSubmittedQuiz || isSubmittedSurvey
+                          ? isSubmittedQuiz && isCorrectAnswer
                             ? 'border-green-500 bg-green-50 cursor-default'
-                            : isWrongAnswer
+                            : isSubmittedQuiz && isWrongAnswer
                             ? 'border-red-500 bg-red-50 cursor-default'
+                            : isSubmittedSurvey && isUserAnswer
+                            ? 'border-blue-500 bg-blue-50 cursor-default'
                             : 'border-gray-200 cursor-default'
                           : 'border-gray-200 hover:bg-gray-50 cursor-pointer'
                       }`}
@@ -430,9 +438,9 @@ export default function FormWidget({
                         type="radio"
                         name={question.id}
                         value={optionValue}
-                        checked={answers[question.id] === optionValue || (isSubmittedQuiz && isUserAnswer)}
-                        onChange={(e) => !isSubmittedQuiz && handleAnswerChange(question.id, e.target.value)}
-                        disabled={isSubmittedQuiz}
+                        checked={answers[question.id] === optionValue || isUserAnswer}
+                        onChange={(e) => !(isSubmittedQuiz || isSubmittedSurvey) && handleAnswerChange(question.id, e.target.value)}
+                        disabled={isSubmittedQuiz || isSubmittedSurvey}
                         className="mr-3"
                       />
                       <span className="text-sm flex-1">{optionText}</span>
@@ -440,6 +448,11 @@ export default function FormWidget({
                         <div className="flex items-center gap-2 ml-2">
                           {isUserAnswer && <span className="text-xs font-medium">내 답안</span>}
                           {isCorrectAnswer && <span className="text-xs font-medium text-green-600">정답</span>}
+                        </div>
+                      )}
+                      {isSubmittedSurvey && isUserAnswer && (
+                        <div className="flex items-center gap-2 ml-2">
+                          <span className="text-xs font-medium text-blue-600">내 답안</span>
                         </div>
                       )}
                     </label>
@@ -457,10 +470,11 @@ export default function FormWidget({
                   const optionText = typeof option === 'object' ? option.text : option
                   const optionValue = typeof option === 'object' ? option.id : option
                   
-                  // 제출 후 정답 표시
+                  // 제출 후 정답 표시 (퀴즈) 또는 답안 표시 (설문)
                   const isSubmittedQuiz = submitted && form.kind === 'quiz'
+                  const isSubmittedSurvey = submitted && form.kind === 'survey'
                   const result = submissionResult?.questionResults?.find((r: any) => r.questionId === question.id)
-                  const userAnswerArray = isSubmittedQuiz ? (userAnswers[question.id] || []) : (answers[question.id] || [])
+                  const userAnswerArray = (isSubmittedQuiz || isSubmittedSurvey) ? (userAnswers[question.id] || []) : (answers[question.id] || [])
                   const isUserAnswer = Array.isArray(userAnswerArray) && userAnswerArray.includes(optionValue)
                   const isCorrectAnswer = result?.correctAnswer?.choiceIds?.includes(optionId)
                   const isWrongAnswer = isUserAnswer && !isCorrectAnswer
@@ -469,11 +483,13 @@ export default function FormWidget({
                     <label
                       key={optionId}
                       className={`flex items-center p-3 rounded-lg border-2 ${
-                        isSubmittedQuiz
-                          ? isCorrectAnswer
+                        isSubmittedQuiz || isSubmittedSurvey
+                          ? isSubmittedQuiz && isCorrectAnswer
                             ? 'border-green-500 bg-green-50 cursor-default'
-                            : isWrongAnswer
+                            : isSubmittedQuiz && isWrongAnswer
                             ? 'border-red-500 bg-red-50 cursor-default'
+                            : isSubmittedSurvey && isUserAnswer
+                            ? 'border-blue-500 bg-blue-50 cursor-default'
                             : 'border-gray-200 cursor-default'
                           : 'border-gray-200 hover:bg-gray-50 cursor-pointer'
                       }`}
@@ -482,7 +498,7 @@ export default function FormWidget({
                         type="checkbox"
                         checked={isUserAnswer}
                         onChange={(e) => {
-                          if (!isSubmittedQuiz) {
+                          if (!(isSubmittedQuiz || isSubmittedSurvey)) {
                             const current = answers[question.id] || []
                             if (e.target.checked) {
                               handleAnswerChange(question.id, [...current, optionValue])
@@ -494,7 +510,7 @@ export default function FormWidget({
                             }
                           }
                         }}
-                        disabled={isSubmittedQuiz}
+                        disabled={isSubmittedQuiz || isSubmittedSurvey}
                         className="mr-3"
                       />
                       <span className="text-sm flex-1">{optionText}</span>
@@ -502,6 +518,11 @@ export default function FormWidget({
                         <div className="flex items-center gap-2 ml-2">
                           {isUserAnswer && <span className="text-xs font-medium">내 답안</span>}
                           {isCorrectAnswer && <span className="text-xs font-medium text-green-600">정답</span>}
+                        </div>
+                      )}
+                      {isSubmittedSurvey && isUserAnswer && (
+                        <div className="flex items-center gap-2 ml-2">
+                          <span className="text-xs font-medium text-blue-600">내 답안</span>
                         </div>
                       )}
                     </label>
@@ -514,14 +535,16 @@ export default function FormWidget({
             {question.type === 'text' && (
               <div className="mt-3">
                 <textarea
-                  value={answers[question.id] || (submitted && form.kind === 'quiz' ? (userAnswers[question.id] || '') : '')}
-                  onChange={(e) => !(submitted && form.kind === 'quiz') && handleAnswerChange(question.id, e.target.value)}
-                  disabled={submitted && form.kind === 'quiz'}
+                  value={answers[question.id] || (submitted ? (userAnswers[question.id] || '') : '')}
+                  onChange={(e) => !submitted && handleAnswerChange(question.id, e.target.value)}
+                  disabled={submitted}
                   className={`w-full px-3 py-2 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                     submitted && form.kind === 'quiz'
                       ? submissionResult?.questionResults?.find((r: any) => r.questionId === question.id)?.isCorrect
                         ? 'border-green-500 bg-green-50'
                         : 'border-red-500 bg-red-50'
+                      : submitted && form.kind === 'survey'
+                      ? 'border-blue-500 bg-blue-50'
                       : 'border-gray-300'
                   }`}
                   rows={4}
@@ -535,6 +558,11 @@ export default function FormWidget({
                         <div className="text-sm">{submissionResult.questionResults.find((r: any) => r.questionId === question.id).correctAnswer.text}</div>
                       </div>
                     )}
+                  </div>
+                )}
+                {submitted && form.kind === 'survey' && userAnswers[question.id] && (
+                  <div className="mt-2">
+                    <div className="text-xs text-blue-600 font-medium">내 답안</div>
                   </div>
                 )}
               </div>

@@ -60,16 +60,38 @@ export async function GET(
     
     const parallelChecks = []
     
-    // 설문인 경우 제출 여부 확인
+    // 설문인 경우 제출 여부 및 답안 확인
     if (form.kind === 'survey' && user) {
       parallelChecks.push(
-        admin
-          .from('form_submissions')
-          .select('id')
-          .eq('form_id', formId)
-          .eq('participant_id', user.id)
-          .maybeSingle()
-          .then(({ data }) => ({ type: 'submission', data }))
+        Promise.all([
+          admin
+            .from('form_submissions')
+            .select('id')
+            .eq('form_id', formId)
+            .eq('participant_id', user.id)
+            .maybeSingle(),
+          admin
+            .from('form_answers')
+            .select('question_id, choice_ids, text_answer, submission_id')
+            .eq('form_id', formId)
+            .eq('participant_id', user.id)
+            .order('answered_at', { ascending: false })
+            .then(({ data: answers }) => {
+              // submission_id로 그룹화하여 가장 최근 제출의 답안만 가져오기
+              if (answers && answers.length > 0) {
+                // submission_id별로 그룹화 (같은 submission_id의 답안들)
+                const submissionIds = [...new Set(answers.map((a: any) => a.submission_id))]
+                // 가장 최근 submission_id 찾기 (answered_at 기준으로 정렬되어 있으므로 첫 번째 그룹)
+                const latestSubmissionId = submissionIds[0]
+                return answers.filter((a: any) => a.submission_id === latestSubmissionId)
+              }
+              return []
+            })
+        ]).then(([submissionResult, answersResult]) => ({
+          type: 'survey_submission',
+          submission: submissionResult.data,
+          answers: answersResult
+        }))
       )
     } else if (form.kind === 'quiz' && user) {
       // 퀴즈인 경우 제출 정보와 답안 조회
@@ -130,10 +152,16 @@ export async function GET(
     const checkResults = await Promise.all(parallelChecks)
     
     // 결과 처리
+    let surveyAnswers: any[] = []
     for (const result of checkResults) {
       if (result.type === 'submission' && 'data' in result && result.data) {
         isSubmitted = true
-      } else if (result.type === 'quiz_submission' && 'submission' in result) {
+      } else if (result.type === 'survey_submission' && 'submission' in result && 'answers' in result) {
+        if (result.submission) {
+          isSubmitted = true
+          surveyAnswers = result.answers || []
+        }
+      } else if (result.type === 'quiz_submission' && 'submission' in result && 'attempt' in result) {
         if (result.submission) {
           isSubmitted = true
           submissionData = {
@@ -148,6 +176,27 @@ export async function GET(
           canViewAnswers = true
         }
       }
+    }
+    
+    // 이미 제출한 설문인 경우 답안 정보 구성
+    let surveyUserAnswers: Record<string, any> = {}
+    if (form.kind === 'survey' && isSubmitted && surveyAnswers.length > 0) {
+      surveyAnswers.forEach((answer: any) => {
+        const question = questions?.find((q: any) => q.id === answer.question_id)
+        if (question) {
+          if (answer.choice_ids && Array.isArray(answer.choice_ids)) {
+            // 단일/다중 선택
+            if (question.type === 'single') {
+              surveyUserAnswers[answer.question_id] = answer.choice_ids[0]
+            } else {
+              surveyUserAnswers[answer.question_id] = answer.choice_ids
+            }
+          } else if (answer.text_answer) {
+            // 텍스트 답변
+            surveyUserAnswers[answer.question_id] = answer.text_answer
+          }
+        }
+      })
     }
     
     // 이미 제출한 퀴즈인 경우 정답 정보 조회
@@ -200,6 +249,10 @@ export async function GET(
           attemptNo: submissionData.attempt?.attempt_no || 1,
           questionResults,
         }
+      } : {}),
+      // 설문이고 이미 제출한 경우 답안 정보 포함
+      ...(form.kind === 'survey' && isSubmitted ? {
+        userAnswers: surveyUserAnswers,
       } : {}),
     })
   } catch (error: any) {
