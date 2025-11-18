@@ -64,6 +64,7 @@ export default function Sidebar() {
       return [
         { name: '대시보드', href: '/super/dashboard', icon: '📊' },
         { name: '에이전시 관리', href: '/super/agencies', icon: '🏢' },
+        { name: '계정 설정', href: '/settings/profile', icon: '⚙️' },
       ]
     } else if (pathname.includes('/agency/')) {
       const agencyId = params?.agencyId as string
@@ -73,6 +74,7 @@ export default function Sidebar() {
         { name: '클라이언트', href: `/agency/${agencyId}/clients`, icon: '👥' },
         { name: '리포트', href: `/agency/${agencyId}/reports`, icon: '📈' },
         { name: '도메인', href: `/agency/${agencyId}/domains`, icon: '🌐' },
+        { name: '계정 설정', href: '/settings/profile', icon: '⚙️' },
       ]
     } else if (pathname.includes('/client/')) {
       const clientId = params?.clientId as string
@@ -81,6 +83,7 @@ export default function Sidebar() {
         { name: '대시보드', href: `/client/${clientId}/dashboard`, icon: '📊' },
         { name: '웨비나', href: `/client/${clientId}/webinars`, icon: '🎥' },
         { name: '브랜딩', href: `/client/${clientId}/settings/branding`, icon: '🎨' },
+        { name: '계정 설정', href: '/settings/profile', icon: '⚙️' },
       ]
     }
     return []

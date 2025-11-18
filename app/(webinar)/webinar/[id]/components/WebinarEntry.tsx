@@ -106,6 +106,10 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
             try {
               await fetch(`/api/webinars/${webinar.id}/register`, {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  nickname: nickname.trim() || null,
+                }),
               })
             } catch (error) {
               console.error('웨비나 등록 오류:', error)
@@ -173,6 +177,10 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
           try {
             const registerResponse = await fetch(`/api/webinars/${webinar.id}/register`, {
               method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                nickname: nickname.trim() || null,
+              }),
             })
             
             if (!registerResponse.ok) {
@@ -371,6 +379,10 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
         try {
           const registerResponse = await fetch(`/api/webinars/${webinar.id}/register`, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nickname: nickname.trim() || null,
+            }),
           })
           
           if (!registerResponse.ok) {
@@ -548,6 +560,21 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
                   required
                   disabled={loading}
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  닉네임 <span className="text-gray-400 text-xs">(선택사항)</span>
+                </label>
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="채팅에 표시될 닉네임 (미입력 시 이름 사용)"
+                  disabled={loading}
+                  maxLength={20}
+                />
+                <p className="mt-1 text-sm text-gray-500">닉네임을 입력하지 않으면 이름이 표시됩니다</p>
               </div>
               <button
                 type="submit"

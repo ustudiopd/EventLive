@@ -46,6 +46,7 @@ export default function SuperSidebar() {
     { name: '대시보드', href: '/super/dashboard', icon: '📊' },
     { name: '에이전시 관리', href: '/super/agencies', icon: '🏢' },
     { name: '클라이언트 관리', href: '/super/clients', icon: '👥' },
+    { name: '계정 설정', href: '/settings/profile', icon: '⚙️' },
   ]
 
   return (

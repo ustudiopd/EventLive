@@ -62,11 +62,21 @@ export default async function SuperDashboard() {
             <p className="text-gray-600">전체 시스템 관리 및 모니터링</p>
           </div>
           <div className="bg-white px-4 py-3 rounded-lg shadow border border-gray-200">
-            <div className="text-sm text-gray-600">접속 계정</div>
-            <div className="font-semibold text-gray-900">
-              {profile?.display_name || profile?.email || user.email}
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-600">접속 계정</div>
+                <div className="font-semibold text-gray-900">
+                  {profile?.display_name || profile?.email || user.email}
+                </div>
+                <div className="text-xs text-blue-600 mt-1">슈퍼 관리자</div>
+              </div>
+              <Link
+                href="/settings/profile"
+                className="ml-4 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                수정
+              </Link>
             </div>
-            <div className="text-xs text-blue-600 mt-1">슈퍼 관리자</div>
           </div>
         </div>
 

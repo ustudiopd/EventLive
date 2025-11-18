@@ -126,11 +126,24 @@ export default function Chat({
             profile = result.profile
           }
           
+          // displayName 결정: nickname > display_name > email > '익명'
+          let displayName = '익명'
+          // API 응답에서 registration 정보 확인 (nickname 포함)
+          const registrationData = await fetch(`/api/webinars/${webinarId}/check-registration?userId=${user.id}`)
+            .then(res => res.ok ? res.json() : null)
+            .catch(() => null)
+          
+          if (registrationData?.nickname) {
+            displayName = registrationData.nickname
+          } else if ((profile as any)?.display_name) {
+            displayName = (profile as any).display_name
+          } else if ((profile as any)?.email) {
+            displayName = (profile as any).email
+          }
+          
           setCurrentUser({
             id: user.id,
-            display_name: isAdmin || !isParticipant
-              ? '관리자'
-              : ((profile as any)?.display_name || (profile as any)?.email || '익명'),
+            display_name: displayName,
             email: (profile as any)?.email,
           })
           return
@@ -140,15 +153,13 @@ export default function Chat({
         
         // 폴백: 직접 조회 시도
         try {
-          // 웨비나 등록 정보 확인
+          // 웨비나 등록 정보 확인 (nickname 포함)
           const { data: registration } = await supabase
             .from('registrations')
-            .select('role')
+            .select('role, nickname')
             .eq('webinar_id', webinarId)
             .eq('user_id', user.id)
             .maybeSingle()
-          
-          const isParticipant = (registration as any)?.role === 'attendee'
           
           const { data: profile } = await supabase
             .from('profiles')
@@ -156,20 +167,28 @@ export default function Chat({
             .eq('id', user.id)
             .single()
           
+          // displayName 결정: nickname > display_name > email > '익명'
+          let displayName = '익명'
+          if ((registration as any)?.nickname) {
+            displayName = (registration as any).nickname
+          } else if ((profile as any)?.display_name) {
+            displayName = (profile as any).display_name
+          } else if ((profile as any)?.email) {
+            displayName = (profile as any).email
+          }
+          
           setCurrentUser({
             id: user.id,
-            display_name: isParticipant 
-              ? ((profile as any)?.display_name || (profile as any)?.email || '익명')
-              : '관리자',
+            display_name: displayName,
             email: (profile as any)?.email,
           })
         } catch (error) {
           console.warn('직접 프로필 조회 실패:', error)
           // 프로필 정보가 없어도 사용자 ID는 설정
-          // 기본적으로 관리자로 표시 (참여자 여부 확인 불가)
+          // 기본값으로 '익명' 사용
           setCurrentUser({
             id: user.id,
-            display_name: '관리자',
+            display_name: '익명',
           })
         }
       }
@@ -277,7 +296,7 @@ export default function Chat({
         throw new Error(result.error || '메시지 조회 실패')
       }
       
-      // API에서 이미 pd@ustudio.co.kr 이메일은 "관리자"로 표시하도록 처리됨
+      // 메시지 목록 로드 완료
       const { messages: loadedMessages, nextCursor: cursor, hasMore: more } = result
       
       // 마지막 메시지 ID 업데이트 (폴백 폴링용)
@@ -619,20 +638,15 @@ export default function Chat({
               // 프로필 정보를 API로 빠르게 조회
               const fetchProfile = async () => {
                 try {
-                  // 프로필, 참여자 여부, 관리자 여부 동시 조회
-                  const [profileResponse, registrationResponse, adminCheckResponse] = await Promise.all([
+                  // 프로필, 등록 정보(nickname 포함) 동시 조회
+                  const [profileResponse, registrationResponse] = await Promise.all([
                     fetch(`/api/profiles/${newMsg.user_id}`),
                     supabase
                       .from('registrations')
-                      .select('role')
+                      .select('role, nickname')
                       .eq('webinar_id', webinarId)
                       .eq('user_id', newMsg.user_id)
                       .maybeSingle(),
-                    fetch(`/api/webinars/${webinarId}/check-admin`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ userIds: [newMsg.user_id] }),
-                    })
                   ])
                   
                   let profile = null
@@ -641,19 +655,17 @@ export default function Chat({
                     profile = result.profile
                   }
                   
-                  const registration = registrationResponse.data as { role?: string } | null
-                  const isParticipant = (registration as any)?.role === 'attendee'
+                  const registration = registrationResponse.data as { role?: string; nickname?: string } | null
                   
-                  // 관리자 여부 확인
-                  let isAdmin = false
-                  if (adminCheckResponse.ok) {
-                    const adminResult = await adminCheckResponse.json()
-                    isAdmin = adminResult.adminUserIds?.includes(newMsg.user_id) || false
+                  // displayName 결정: nickname > display_name > email > '익명'
+                  let displayName = '익명'
+                  if ((registration as any)?.nickname) {
+                    displayName = (registration as any).nickname
+                  } else if ((profile as any)?.display_name) {
+                    displayName = (profile as any).display_name
+                  } else if ((profile as any)?.email) {
+                    displayName = (profile as any).email
                   }
-                  
-                  const displayName = isAdmin || !isParticipant
-                    ? '관리자'
-                    : ((profile as any)?.display_name || (profile as any)?.email || '익명')
                   
                   if (profile) {
                     return {
@@ -670,10 +682,10 @@ export default function Chat({
                   }
                 } catch (error) {
                   console.warn('프로필 조회 실패:', error)
-                  // 기본값: 관리자로 표시
+                  // 기본값: '익명'으로 표시
                   return {
                     id: newMsg.user_id,
-                    display_name: '관리자',
+                    display_name: '익명',
                     email: null,
                   }
                 }
@@ -708,7 +720,7 @@ export default function Chat({
               
               if (optimisticIndex !== -1) {
                 // Optimistic 메시지를 실제 메시지로 교체
-                // fetchProfile에서 이미 관리자 여부를 확인하여 "관리자"로 표시하도록 처리됨
+                // fetchProfile에서 nickname 우선 사용하여 display_name 결정
                 const finalUser = profileWithDisplayName || prev[optimisticIndex].user
                 
                 const updated = [...prev]
@@ -759,7 +771,7 @@ export default function Chat({
                 }
               }
                   
-              // fetchProfile에서 이미 관리자 여부를 확인하여 "관리자"로 표시하도록 처리됨
+              // fetchProfile에서 nickname 우선 사용하여 display_name 결정
               const finalUser = profileWithDisplayName
               
               const updated = [...prev, {
@@ -1490,10 +1502,26 @@ export default function Chat({
       }
     }
     
-    // currentUser의 display_name이 "관리자"이면 그대로 사용, 아니면 프로필 정보 사용
-    const displayName = userProfile.display_name === '관리자'
-      ? '관리자'
-      : (userProfile.display_name || userProfile.email || '익명')
+    // nickname 조회 (웨비나별 닉네임 우선 사용)
+    let displayName = userProfile.display_name || userProfile.email || '익명'
+    try {
+      const { data: registration } = await supabase
+        .from('registrations')
+        .select('nickname')
+        .eq('webinar_id', webinarId)
+        .eq('user_id', currentUser.id)
+        .maybeSingle()
+      
+      if ((registration as any)?.nickname) {
+        displayName = (registration as any).nickname
+      } else if (userProfile.display_name) {
+        displayName = userProfile.display_name
+      } else if (userProfile.email) {
+        displayName = userProfile.email
+      }
+    } catch (error) {
+      console.warn('등록 정보 조회 실패:', error)
+    }
     
     // Optimistic Update: 즉시 UI에 임시 메시지 추가 (프로필 정보 포함)
     const optimisticMessage: Message = {
@@ -1543,8 +1571,7 @@ export default function Chat({
       
       // ✅ API 성공 즉시 UI 교체 (Realtime 대기 없이)
       const serverMsg = result.message
-      // API에서 이미 관리자 여부를 확인하여 "관리자"로 표시하도록 처리됨
-      // currentUser의 display_name이 "관리자"이면 그대로 사용
+      // API에서 nickname 우선 사용하여 display_name 결정됨
       const serverMsgUser = serverMsg.user || userProfile || { id: currentUser.id, display_name: displayName }
       
       setMessages((prev) => prev.map((msg) => {

@@ -115,12 +115,20 @@ export async function POST(req: Request) {
           webinar_id: webinarId,
           user_id: authData.user.id,
           role: 'attendee',
+          nickname: nickname.trim() || null,
         })
-      
+        
       if (registerError && registerError.code !== '23505') {
         // 중복 키 에러(23505)는 무시, 다른 에러는 로깅
         console.error('웨비나 등록 실패:', registerError)
       }
+    } else {
+      // 이미 등록되어 있으면 nickname 업데이트
+      await admin
+        .from('registrations')
+        .update({ nickname: nickname.trim() || null })
+        .eq('webinar_id', webinarId)
+        .eq('user_id', authData.user.id)
     }
     
     // 게스트 계정 정보 반환 (클라이언트에서 직접 로그인)

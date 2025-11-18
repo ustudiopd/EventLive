@@ -16,6 +16,15 @@ export async function POST(
     const { user } = await requireAuth()
     const admin = createAdminSupabase()
     
+    // 요청 본문에서 nickname 추출
+    let nickname: string | null = null
+    try {
+      const body = await req.json()
+      nickname = body.nickname?.trim() || null
+    } catch {
+      // JSON 파싱 실패 시 무시 (하위 호환성)
+    }
+    
     // 웨비나 존재 확인
     const { data: webinar, error: webinarError } = await admin
       .from('webinars')
@@ -33,23 +42,31 @@ export async function POST(
     // 이미 등록되어 있는지 확인
     const { data: existingRegistration } = await admin
       .from('registrations')
-      .select('webinar_id, user_id')
+      .select('webinar_id, user_id, nickname')
       .eq('webinar_id', webinarId)
       .eq('user_id', user.id)
       .maybeSingle()
     
     if (existingRegistration) {
-      // 이미 등록되어 있으면 성공 반환
+      // 이미 등록되어 있으면 nickname 업데이트 (제공된 경우)
+      if (nickname !== null) {
+        await admin
+          .from('registrations')
+          .update({ nickname })
+          .eq('webinar_id', webinarId)
+          .eq('user_id', user.id)
+      }
       return NextResponse.json({ success: true, alreadyRegistered: true })
     }
     
-    // 등록 생성 (attendee 역할)
+    // 등록 생성 (attendee 역할, nickname 포함)
     const { error: registerError } = await admin
       .from('registrations')
       .insert({
         webinar_id: webinarId,
         user_id: user.id,
         role: 'attendee',
+        nickname,
       })
     
     if (registerError) {

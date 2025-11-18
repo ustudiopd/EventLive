@@ -203,35 +203,36 @@ export async function GET(
       }
     }
     
-    // 각 사용자의 웨비나 등록 정보 조회 (참여자 여부 확인)
+    // 각 사용자의 웨비나 등록 정보 조회 (nickname 포함)
     const registrationsMap = new Map()
     if (userIds.length > 0) {
       const { data: registrations } = await admin
         .from('registrations')
-        .select('user_id, role')
+        .select('user_id, role, nickname')
         .eq('webinar_id', webinarId)
         .in('user_id', userIds)
       
       if (registrations) {
         registrations.forEach((r: any) => {
-          registrationsMap.set(r.user_id, r.role)
+          registrationsMap.set(r.user_id, { role: r.role, nickname: r.nickname })
         })
       }
     }
     
-    // 메시지와 프로필 정보 결합 (관리자이거나 참여자가 아니면 "관리자"로 표시)
+    // 메시지와 프로필 정보 결합 (nickname 우선 사용)
     const formattedMessages = loadedMessages.map((msg: any) => {
       const profile = profilesMap.get(msg.user_id) || null
-      const registrationRole = registrationsMap.get(msg.user_id)
+      const registration = registrationsMap.get(msg.user_id)
       
-      // 관리자 여부 확인 (슈퍼 관리자, 에이전시 멤버, 클라이언트 멤버)
-      const isAdmin = adminUsersSet.has(msg.user_id)
-      
-      // 참여자(attendee)가 아니면 "관리자"로 표시
-      const isParticipant = registrationRole === 'attendee'
-      const displayName = isAdmin || !isParticipant
-        ? '관리자'
-        : (profile?.display_name || profile?.email || '익명')
+      // displayName 결정: nickname > display_name > email > '익명'
+      let displayName = '익명'
+      if (registration?.nickname) {
+        displayName = registration.nickname
+      } else if (profile?.display_name) {
+        displayName = profile.display_name
+      } else if (profile?.email) {
+        displayName = profile.email
+      }
       
       return {
         id: msg.id,
