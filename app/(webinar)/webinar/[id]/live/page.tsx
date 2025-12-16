@@ -150,6 +150,21 @@ export default async function WebinarLivePage({
     if (webinar.access_policy === 'auth' && !user) {
       redirect(`/webinar/${id}`)
     }
+    
+    // email_auth 정책: 등록된 이메일인지 확인
+    if (webinar.access_policy === 'email_auth' && user) {
+      const { data: allowedEmail } = await admin
+        .from('webinar_allowed_emails')
+        .select('email')
+        .eq('webinar_id', id)
+        .ilike('email', user.email?.toLowerCase() || '')
+        .maybeSingle()
+      
+      if (!allowedEmail) {
+        // 등록되지 않은 이메일이면 입장 페이지로 리다이렉트
+        redirect(`/webinar/${id}`)
+      }
+    }
   }
   
   return <WebinarView webinar={webinar} isAdminMode={isAdminMode} />

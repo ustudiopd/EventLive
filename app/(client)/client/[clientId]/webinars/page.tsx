@@ -193,6 +193,7 @@ export default function WebinarsPage() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {webinar.access_policy === 'auth' && '인증 필요'}
+                            {webinar.access_policy === 'email_auth' && '인증필요 (이메일)'}
                             {webinar.access_policy === 'guest_allowed' && '게스트 허용'}
                             {webinar.access_policy === 'invite_only' && '초대 전용'}
                           </td>

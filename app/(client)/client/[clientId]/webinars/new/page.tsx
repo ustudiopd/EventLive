@@ -17,7 +17,8 @@ export default function NewWebinarPage() {
     endTime: '',
     maxParticipants: '',
     isPublic: false,
-    accessPolicy: 'auth' as 'auth' | 'guest_allowed' | 'invite_only',
+    accessPolicy: 'auth' as 'auth' | 'guest_allowed' | 'invite_only' | 'email_auth',
+    allowedEmails: [] as string[],
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -54,6 +55,7 @@ export default function NewWebinarPage() {
         maxParticipants: formData.maxParticipants ? parseInt(formData.maxParticipants) : null,
         isPublic: formData.isPublic,
         accessPolicy: formData.accessPolicy,
+        allowedEmails: formData.accessPolicy === 'email_auth' ? formData.allowedEmails : undefined,
       }
       
       console.log('웨비나 생성 요청:', requestBody)
@@ -213,9 +215,30 @@ export default function NewWebinarPage() {
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
               >
                 <option value="auth">인증 필요 (로그인 필수)</option>
+                <option value="email_auth">인증필요 (이메일)</option>
                 <option value="guest_allowed">게스트 허용</option>
                 <option value="invite_only">초대 전용</option>
               </select>
+              {formData.accessPolicy === 'email_auth' && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    등록된 이메일 목록 (한 줄에 하나씩)
+                  </label>
+                  <textarea
+                    value={formData.allowedEmails.join('\n')}
+                    onChange={(e) => {
+                      const emails = e.target.value.split('\n').map(email => email.trim()).filter(email => email)
+                      setFormData({ ...formData, allowedEmails: emails })
+                    }}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="user1@example.com&#10;user2@example.com&#10;user3@example.com"
+                    rows={6}
+                  />
+                  <p className="mt-1 text-sm text-gray-500">
+                    등록된 이메일 주소만 이 웨비나에 입장할 수 있습니다.
+                  </p>
+                </div>
+              )}
             </div>
             
             <div className="flex items-center">

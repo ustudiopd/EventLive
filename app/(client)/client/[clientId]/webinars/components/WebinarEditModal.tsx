@@ -23,7 +23,8 @@ export default function WebinarEditModal({
     endTime: '',
     maxParticipants: '',
     isPublic: false,
-    accessPolicy: 'auth' as 'auth' | 'guest_allowed' | 'invite_only',
+    accessPolicy: 'auth' as 'auth' | 'guest_allowed' | 'invite_only' | 'email_auth',
+    allowedEmails: [] as string[],
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -43,16 +44,38 @@ export default function WebinarEditModal({
         return `${year}-${month}-${day}T${hours}:${minutes}`
       }
 
-      setFormData({
-        title: webinar.title || '',
-        description: webinar.description || '',
-        youtubeUrl: webinar.youtube_url || '',
-        startTime: formatDateTime(webinar.start_time),
-        endTime: formatDateTime(webinar.end_time),
-        maxParticipants: webinar.max_participants ? String(webinar.max_participants) : '',
-        isPublic: webinar.is_public || false,
-        accessPolicy: webinar.access_policy || 'auth',
-      })
+      // 허용된 이메일 목록 로드
+      const loadAllowedEmails = async () => {
+        if (webinar.access_policy === 'email_auth') {
+          try {
+            const response = await fetch(`/api/webinars/${webinar.id}/allowed-emails`)
+            if (response.ok) {
+              const { emails } = await response.json()
+              return emails || []
+            }
+          } catch (error) {
+            console.error('허용된 이메일 로드 오류:', error)
+          }
+        }
+        return []
+      }
+      
+      const initializeFormData = async () => {
+        const emails = await loadAllowedEmails()
+        setFormData({
+          title: webinar.title || '',
+          description: webinar.description || '',
+          youtubeUrl: webinar.youtube_url || '',
+          startTime: formatDateTime(webinar.start_time),
+          endTime: formatDateTime(webinar.end_time),
+          maxParticipants: webinar.max_participants ? String(webinar.max_participants) : '',
+          isPublic: webinar.is_public || false,
+          accessPolicy: webinar.access_policy || 'auth',
+          allowedEmails: emails,
+        })
+      }
+      
+      initializeFormData()
     }
   }, [webinar, isOpen])
 
@@ -81,6 +104,7 @@ export default function WebinarEditModal({
         maxParticipants: formData.maxParticipants ? parseInt(formData.maxParticipants) : null,
         isPublic: formData.isPublic,
         accessPolicy: formData.accessPolicy,
+        allowedEmails: formData.accessPolicy === 'email_auth' ? formData.allowedEmails : undefined,
       }
 
       const response = await fetch(`/api/webinars/${webinar.id}`, {
@@ -224,9 +248,30 @@ export default function WebinarEditModal({
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="auth">인증 필요 (로그인 필수)</option>
+                <option value="email_auth">인증필요 (이메일)</option>
                 <option value="guest_allowed">게스트 허용</option>
                 <option value="invite_only">초대 전용</option>
               </select>
+              {formData.accessPolicy === 'email_auth' && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    등록된 이메일 목록 (한 줄에 하나씩)
+                  </label>
+                  <textarea
+                    value={formData.allowedEmails.join('\n')}
+                    onChange={(e) => {
+                      const emails = e.target.value.split('\n').map(email => email.trim()).filter(email => email)
+                      setFormData({ ...formData, allowedEmails: emails })
+                    }}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="user1@example.com&#10;user2@example.com&#10;user3@example.com"
+                    rows={6}
+                  />
+                  <p className="mt-1 text-sm text-gray-500">
+                    등록된 이메일 주소만 이 웨비나에 입장할 수 있습니다.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center">

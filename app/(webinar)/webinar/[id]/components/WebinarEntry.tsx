@@ -26,8 +26,9 @@ interface WebinarEntryProps {
 export default function WebinarEntry({ webinar }: WebinarEntryProps) {
   const router = useRouter()
   const supabase = createClientSupabase()
-  const [mode, setMode] = useState<'login' | 'signup' | 'guest'>(
-    webinar.access_policy === 'guest_allowed' ? 'guest' : 'login'
+  const [mode, setMode] = useState<'login' | 'signup' | 'guest' | 'email_auth' | 'register'>(
+    webinar.access_policy === 'guest_allowed' ? 'guest' : 
+    webinar.access_policy === 'email_auth' ? 'email_auth' : 'login'
   )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -36,6 +37,8 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showEmailVerification, setShowEmailVerification] = useState(false)
+  const [privacyAgreed, setPrivacyAgreed] = useState(false)
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false)
   
   useEffect(() => {
     // URL에서 이메일 인증 확인 파라미터 체크
@@ -44,7 +47,7 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
     const token = urlParams.get('token')
     
     // 이메일 인증 완료 후 리다이렉트된 경우
-    if (type === 'signup' && token) {
+    if ((type === 'signup' || type === 'email_auth') && token) {
       // 세션 확인 및 자동 로그인
       supabase.auth.getSession().then(async ({ data: { session } }) => {
         if (session) {
@@ -87,7 +90,7 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
           checkProfile()
         }
       })
-    } else if (urlParams.get('verified') === 'true') {
+    } else if (urlParams.get('verified') === 'true' || (type === 'email_auth' && urlParams.get('verified') === 'true')) {
       // 이메일 인증 완료 안내 모달 표시 후 라이브 페이지로 이동
       setShowEmailVerification(true)
       
@@ -281,6 +284,132 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
     }
   }
   
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    
+    if (!email || !email.trim()) {
+      setError('이메일을 입력해주세요')
+      return
+    }
+    
+    setLoading(true)
+    
+    try {
+      const response = await fetch('/api/auth/email-signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          nickname: nickname.trim() || null,
+          webinarId: webinar.id,
+        }),
+      })
+      
+      const result = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(result.error || '입장 요청에 실패했습니다')
+      }
+      
+      // 비밀번호로 바로 로그인
+      if (result.email && result.password) {
+        const { error: signInError, data: signInData } = await supabase.auth.signInWithPassword({
+          email: result.email,
+          password: result.password,
+        })
+        
+        if (signInError) {
+          throw new Error('로그인에 실패했습니다')
+        }
+        
+        // 세션이 설정될 때까지 대기
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        // 웨비나 등록 확인 및 등록
+        if (signInData.user) {
+          const { data: registration } = await supabase
+            .from('registrations')
+            .select('webinar_id, user_id')
+            .eq('webinar_id', webinar.id)
+            .eq('user_id', signInData.user.id)
+            .maybeSingle()
+          
+          if (!registration) {
+            try {
+              await fetch(`/api/webinars/${webinar.id}/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  nickname: nickname.trim() || null,
+                }),
+              })
+            } catch (registerError) {
+              console.error('웨비나 등록 요청 오류:', registerError)
+            }
+          }
+        }
+        
+        // 웨비나 라이브 페이지로 이동
+        window.location.href = `/webinar/${webinar.id}/live`
+      } else {
+        throw new Error('로그인 정보를 받지 못했습니다')
+      }
+    } catch (err: any) {
+      setError(err.message || '입장 중 오류가 발생했습니다')
+      setLoading(false)
+    }
+  }
+  
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    
+    if (!email || !email.trim()) {
+      setError('이메일을 입력해주세요')
+      return
+    }
+    
+    if (!displayName || !displayName.trim()) {
+      setError('이름을 입력해주세요')
+      return
+    }
+    
+    setLoading(true)
+    
+    try {
+      const response = await fetch(`/api/webinars/${webinar.id}/register-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          displayName: displayName.trim(),
+          nickname: nickname.trim() || null,
+        }),
+      })
+      
+      const result = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(result.error || '등록 신청에 실패했습니다')
+      }
+      
+      // 성공 메시지 표시
+      setError('')
+      alert('등록 신청이 완료되었습니다. 이메일 인증을 통해 입장할 수 있습니다.')
+      
+      // 이메일 인증 모드로 전환
+      setMode('email_auth')
+      setEmail(email.trim())
+      setDisplayName('')
+      setNickname(nickname.trim() || '')
+      setLoading(false)
+    } catch (err: any) {
+      setError(err.message || '등록 신청 중 오류가 발생했습니다')
+      setLoading(false)
+    }
+  }
+  
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -293,7 +422,7 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
     setLoading(true)
     
     try {
-      // 기존 세션이 있으면 먼저 로그아웃 (웨비나별 독립 회원가입을 위해)
+      // 기존 세션이 있으면 먼저 로그아웃 (웨비나별 독립 등록을 위해)
       const { data: { user: currentUser } } = await supabase.auth.getUser()
       if (currentUser) {
         // 기존 사용자가 이 웨비나에 등록되어 있는지 확인
@@ -397,7 +526,7 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
         setLoading(false)
       }
     } catch (err: any) {
-      setError(err.message || '회원가입 중 오류가 발생했습니다')
+      setError(err.message || '등록 중 오류가 발생했습니다')
       setLoading(false)
     }
   }
@@ -429,7 +558,7 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
           </div>
         </div>
         
-        {/* 로그인/회원가입/게스트 폼 */}
+        {/* 로그인/등록/게스트 폼 */}
         <div className="bg-white rounded-xl shadow-lg p-8">
           {webinar.access_policy === 'guest_allowed' && (
             <div className="flex gap-4 mb-6 border-b border-gray-200">
@@ -470,11 +599,42 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                회원가입
+                웨비나 등록
               </button>
             </div>
           )}
-          {webinar.access_policy !== 'guest_allowed' && (
+          {webinar.access_policy === 'email_auth' && (
+            <div className="flex gap-4 mb-6 border-b border-gray-200">
+              <button
+                onClick={() => {
+                  setMode('email_auth')
+                  setError('')
+                }}
+                className={`flex-1 py-3 text-center font-medium transition-colors ${
+                  mode === 'email_auth'
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                웨비나 입장
+              </button>
+              <button
+                onClick={() => {
+                  setMode('register')
+                  setError('')
+                  setPrivacyAgreed(false)
+                }}
+                className={`flex-1 py-3 text-center font-medium transition-colors ${
+                  mode === 'register'
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                웨비나 등록
+              </button>
+            </div>
+          )}
+          {webinar.access_policy !== 'guest_allowed' && webinar.access_policy !== 'email_auth' && (
             <div className="flex gap-4 mb-6 border-b border-gray-200">
               <button
                 onClick={() => {
@@ -500,7 +660,7 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                회원가입
+                웨비나 등록
               </button>
             </div>
           )}
@@ -581,15 +741,138 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
                 disabled={loading}
                 className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 transition-all shadow-lg hover:shadow-xl"
               >
-                {loading ? '로그인 중...' : '웨비나 입장하기'}
+                {loading ? '로그인 중...' : '웨비나 입장'}
+              </button>
+            </form>
+          ) : mode === 'email_auth' ? (
+            <form onSubmit={handleEmailAuth} className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">이메일 <span className="text-red-500">*</span></label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="등록된 이메일 주소를 입력하세요"
+                  required
+                  disabled={loading}
+                />
+                <p className="mt-1 text-sm text-gray-500">
+                  등록된 이메일 주소로 바로 입장할 수 있습니다.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  닉네임 <span className="text-gray-500 text-xs font-normal">(선택사항)</span>
+                </label>
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  className="w-full px-4 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="닉네임을 입력하세요 (선택사항)"
+                  disabled={loading}
+                  maxLength={20}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  닉네임을 지정하지 않으면 이메일 주소로 표기됩니다.
+                </p>
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 transition-all shadow-lg hover:shadow-xl"
+              >
+                {loading ? '입장 중...' : '웨비나 입장'}
+              </button>
+              <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  입장 확인을 위해 이벤터스로부터 제공받은 최소한의 정보(이름, 이메일)만을 활용하며, 해당 정보는 <strong>모두의특강((주)유스튜디오)</strong>의 개인정보 처리방침에 따라 안전하게 보호됩니다.
+                </p>
+              </div>
+            </form>
+          ) : mode === 'register' ? (
+            <form onSubmit={handleRegister} className="space-y-5">
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>웨비나 등록 신청</strong><br />
+                  등록 신청 후 이메일 인증을 통해 입장할 수 있습니다.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">이메일 <span className="text-red-500">*</span></label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="your@email.com"
+                  required
+                  disabled={loading}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">이름 <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="w-full px-4 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="이름을 입력하세요"
+                  required
+                  disabled={loading}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  닉네임 <span className="text-gray-500 text-xs font-normal">(선택사항)</span>
+                </label>
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  className="w-full px-4 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="닉네임을 입력하세요 (선택사항)"
+                  disabled={loading}
+                  maxLength={20}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  닉네임을 지정하지 않으면 이름으로 표기됩니다.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  id="privacy-agree"
+                  checked={privacyAgreed}
+                  onChange={(e) => setPrivacyAgreed(e.target.checked)}
+                  className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  disabled={loading}
+                />
+                <label htmlFor="privacy-agree" className="text-sm text-gray-700 cursor-pointer">
+                  [필수] <button
+                    type="button"
+                    onClick={() => setShowPrivacyModal(true)}
+                    className="text-blue-600 hover:text-blue-800 underline"
+                  >
+                    개인정보 수집 및 이용
+                  </button>에 동의합니다.
+                </label>
+              </div>
+              <button
+                type="submit"
+                disabled={loading || !privacyAgreed}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
+              >
+                {loading ? '등록 중...' : '웨비나 등록 및 입장하기'}
               </button>
             </form>
           ) : (
             <form onSubmit={handleSignup} className="space-y-5">
               <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
-                  <strong>이 웨비나에 회원가입</strong><br />
-                  이 웨비나에만 등록되며, 다른 웨비나에는 별도로 가입해야 합니다.
+                  <strong>웨비나 등록</strong><br />
+                  이 웨비나에만 등록되며, 다른 웨비나에는 별도로 등록해야 합니다.
                 </p>
               </div>
               <div>
@@ -651,7 +934,7 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
                 disabled={loading}
                 className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 transition-all shadow-lg hover:shadow-xl"
               >
-                {loading ? '가입 중...' : '이 웨비나에 회원가입하고 입장하기'}
+                {loading ? '등록 중...' : '웨비나 등록하고 입장하기'}
               </button>
             </form>
           )}
@@ -666,9 +949,18 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
               <div className="text-5xl mb-4">📧</div>
               <h2 className="text-2xl font-bold mb-4 text-gray-900">이메일 인증이 필요합니다</h2>
               <p className="text-gray-600 mb-6">
-                회원가입이 완료되었습니다!<br />
-                <strong>{email}</strong>로 전송된 인증 이메일을 확인해주세요.<br />
-                이메일 인증을 완료한 후 웨비나에 입장할 수 있습니다.
+                {mode === 'email_auth' ? (
+                  <>
+                    <strong>{email}</strong>로 전송된 인증 링크를 확인해주세요.<br />
+                    이메일의 링크를 클릭하면 웨비나에 입장할 수 있습니다.
+                  </>
+                ) : (
+                  <>
+                    등록이 완료되었습니다!<br />
+                    <strong>{email}</strong>로 전송된 인증 이메일을 확인해주세요.<br />
+                    이메일 인증을 완료한 후 웨비나에 입장할 수 있습니다.
+                  </>
+                )}
               </p>
               <div className="space-y-3">
                 <button
@@ -685,6 +977,71 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
                     setShowEmailVerification(false)
                   }}
                   className="w-full text-gray-600 py-2 hover:text-gray-800 transition-colors"
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 개인정보 수집 및 이용 동의 모달 */}
+      {showPrivacyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold mb-4 text-gray-900">개인정보 수집 및 이용 동의</h2>
+              <div className="space-y-4 text-sm text-gray-700 leading-relaxed">
+                <p>
+                  <strong>(주)유스튜디오</strong>(이하 '회사')는 '모두의특강' 웨비나 진행을 위해 아래와 같이 개인정보를 수집 및 이용합니다.
+                </p>
+                
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-2">1. 수집 및 이용 목적</h3>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>웨비나 신청 접수 및 참여 자격 확인</li>
+                    <li>웨비나 접속 링크(URL) 및 안내 메일 발송</li>
+                    <li>행사 진행 관련 공지사항 전달</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-2">2. 수집하는 개인정보 항목</h3>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>필수항목: 이름, 이메일</li>
+                    <li>선택항목: 닉네임</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-2">3. 개인정보의 보유 및 이용 기간</h3>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>수집 목적 달성 시(웨비나 종료 및 관련 안내 완료 시)까지</li>
+                    <li>단, 관계 법령에 따라 보존할 필요가 있는 경우 해당 법령에서 정한 기간 동안 보관합니다.</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-2">4. 동의 거부 권리 및 불이익</h3>
+                  <p>
+                    귀하는 개인정보 수집 및 이용에 거부할 권리가 있습니다. 단, 동의를 거부할 경우 웨비나 신청 및 참여가 제한될 수 있습니다.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowPrivacyModal(false)
+                    setPrivacyAgreed(true)
+                  }}
+                  className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl"
+                >
+                  동의하고 닫기
+                </button>
+                <button
+                  onClick={() => setShowPrivacyModal(false)}
+                  className="flex-1 text-gray-600 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   닫기
                 </button>

@@ -1,16 +1,17 @@
 # 현재 작업 상황 (Active Context)
 
 ## 1. 현재 집중하고 있는 작업  
-- **작업명**: Next.js 16 업그레이드 및 보안 취약점 해결
+- **작업명**: 웨비나 등록 시스템 개선 및 이메일 인증 정책 구현
 - **목표**: 
-  - Next.js 16으로 업그레이드
-  - React 19로 업그레이드
-  - Vercel 취약점 대응
+  - 웨비나 등록 용어 변경 및 UI 개선
+  - 이메일 인증 접근 정책 구현
+  - 개인정보 수집 및 이용 동의 기능 추가
+  - 웨비나 등록 후 자동 이메일 발송 기능 구현
 - **상태**: ✅ 완료
-  - Next.js 16.0.10 업그레이드 완료
-  - React 19.2.3 업그레이드 완료
-  - 모든 보안 취약점 해결 (0 vulnerabilities)
-  - 빌드 테스트 통과
+  - 웨비나 등록 용어 변경 완료
+  - email_auth 접근 정책 구현 완료
+  - 개인정보 동의 체크박스 및 모달 구현 완료
+  - 이메일 발송 기능 구현 완료 (nodemailer, 구글 SMTP)
 
 ## 2. 다음 예정 작업  
 - **우선순위 높음**: 
@@ -135,3 +136,4 @@
   - `027_add_nickname_to_registrations.sql` (registrations에 nickname 추가)
   - `028_add_nickname_to_profiles.sql` (profiles에 nickname 추가)
   - `029_add_client_id_to_invitations.sql` (client_invitations에 client_id 추가)
+  - `031_create_webinar_allowed_emails.sql` (email_auth 정책용 허용 이메일 테이블)

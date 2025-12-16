@@ -162,7 +162,7 @@ export default function Home() {
                       </div>
                     ) : (
                       <div className="inline-block px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                        📝 회원가입 필요
+                        📝 웨비나 등록 필요
                       </div>
                     )}
                   </div>

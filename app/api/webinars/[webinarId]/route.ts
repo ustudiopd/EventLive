@@ -20,7 +20,8 @@ export async function PUT(
       endTime,
       maxParticipants,
       isPublic,
-      accessPolicy
+      accessPolicy,
+      allowedEmails
     } = await req.json()
     
     const admin = createAdminSupabase()
@@ -109,6 +110,43 @@ export async function PUT(
         { error: updateError.message },
         { status: 500 }
       )
+    }
+    
+    // email_auth 정책인 경우 허용된 이메일 목록 업데이트
+    if (accessPolicy !== undefined) {
+      if (accessPolicy === 'email_auth' && allowedEmails && Array.isArray(allowedEmails)) {
+        // 기존 이메일 목록 삭제
+        await admin
+          .from('webinar_allowed_emails')
+          .delete()
+          .eq('webinar_id', webinarId)
+        
+        // 새 이메일 목록 추가
+        const emailsToInsert = allowedEmails
+          .map((email: string) => email.trim().toLowerCase())
+          .filter((email: string) => email && email.includes('@'))
+          .map((email: string) => ({
+            webinar_id: webinarId,
+            email,
+            created_by: user.id,
+          }))
+        
+        if (emailsToInsert.length > 0) {
+          const { error: emailsError } = await admin
+            .from('webinar_allowed_emails')
+            .insert(emailsToInsert)
+          
+          if (emailsError) {
+            console.error('허용된 이메일 저장 오류:', emailsError)
+          }
+        }
+      } else if (accessPolicy !== 'email_auth') {
+        // email_auth가 아닌 정책으로 변경 시 기존 이메일 목록 삭제
+        await admin
+          .from('webinar_allowed_emails')
+          .delete()
+          .eq('webinar_id', webinarId)
+      }
     }
     
     // 감사 로그

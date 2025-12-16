@@ -19,7 +19,8 @@ export async function POST(req: Request) {
       endTime,
       maxParticipants,
       isPublic,
-      accessPolicy
+      accessPolicy,
+      allowedEmails
     } = body
     
     if (!clientId || !title || !youtubeUrl) {
@@ -125,6 +126,29 @@ export async function POST(req: Request) {
     }
     
     console.log('웨비나 생성 성공:', webinar.id)
+    
+    // email_auth 정책인 경우 허용된 이메일 목록 저장
+    if (accessPolicy === 'email_auth' && allowedEmails && Array.isArray(allowedEmails)) {
+      const emailsToInsert = allowedEmails
+        .map((email: string) => email.trim().toLowerCase())
+        .filter((email: string) => email && email.includes('@'))
+        .map((email: string) => ({
+          webinar_id: webinar.id,
+          email,
+          created_by: user.id,
+        }))
+      
+      if (emailsToInsert.length > 0) {
+        const { error: emailsError } = await admin
+          .from('webinar_allowed_emails')
+          .insert(emailsToInsert)
+        
+        if (emailsError) {
+          console.error('허용된 이메일 저장 오류:', emailsError)
+          // 이메일 저장 실패는 경고만 하고 웨비나 생성은 성공으로 처리
+        }
+      }
+    }
     
     // 감사 로그 (실패해도 웨비나 생성은 성공으로 처리)
     try {
