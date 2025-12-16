@@ -1,15 +1,16 @@
 # 현재 작업 상황 (Active Context)
 
 ## 1. 현재 집중하고 있는 작업  
-- **작업명**: UI/UX 개선 및 클라이언트 관리 기능 강화
+- **작업명**: Next.js 16 업그레이드 및 보안 취약점 해결
 - **목표**: 
-  - 다크모드에서 텍스트 입력창 가시성 개선
-  - 클라이언트별 초대 기능 구현
-  - 회원가입 시 클라이언트명 고정 기능
+  - Next.js 16으로 업그레이드
+  - React 19로 업그레이드
+  - Vercel 취약점 대응
 - **상태**: ✅ 완료
-  - 모든 입력 필드에 명시적 배경색 및 텍스트 색상 추가
-  - 클라이언트 목록에서 각 클라이언트별 초대 버튼 추가
-  - 초대 링크로 회원가입 시 클라이언트명 자동 고정
+  - Next.js 16.0.10 업그레이드 완료
+  - React 19.2.3 업그레이드 완료
+  - 모든 보안 취약점 해결 (0 vulnerabilities)
+  - 빌드 테스트 통과
 
 ## 2. 다음 예정 작업  
 - **우선순위 높음**: 
@@ -20,10 +21,15 @@
 - **우선순위 중간**:
   4. Typing 표시 기능 완성
   5. 추가 UI/UX 개선사항
+  6. middleware → proxy 마이그레이션 (Next.js 16 호환성)
+     - `middleware.ts` → `proxy.ts` 파일명 변경
+     - `middleware` 함수 → `proxy` 함수명 변경
+     - 현재는 경고만 표시되며 기능 정상 동작
+     - 향후 Next.js 17+ 호환성을 위해 마이그레이션 필요
 
 - **우선순위 낮음**:
-  6. 리포트 고도화
-  7. 성능 최적화 추가 작업
+  7. 리포트 고도화
+  8. 성능 최적화 추가 작업
 
 ## 3. 주요 이슈 및 블로커  
 - 현재 개발을 진행하는 데 방해가 되는 요소 없음
@@ -97,6 +103,14 @@
   - 클라이언트 목록에 각 클라이언트별 초대 버튼 추가
   - 회원가입 페이지에서 클라이언트명 자동 고정 기능
   - 기존 클라이언트에 멤버 추가 또는 새 클라이언트 생성 지원
+- ✅ Next.js 16 업그레이드 및 보안 취약점 해결
+  - Next.js 16.0.10 업그레이드 완료
+  - React 19.2.3 업그레이드 완료
+  - ESLint 9 업그레이드 완료
+  - Next.js 15의 critical 취약점 해결 (RCE, Server Actions Source Code Exposure, DoS)
+  - glob 패키지의 high 취약점 해결 (Command injection)
+  - 모든 취약점 해결 완료 (0 vulnerabilities)
+  - 빌드 테스트 통과 (33개 정적 페이지 생성 완료)
 
 ## 5. 현재 시스템 상태
 - **데이터베이스**: Supabase PostgreSQL (RLS 활성화)
@@ -104,6 +118,7 @@
 - **실시간**: Supabase Realtime 활성화됨 (messages, questions, forms, form_submissions, giveaways, giveaway_entries, giveaway_winners 테이블)
 - **스토리지**: Supabase Storage (발표자료 다운로드에 사용 중)
 - **배포**: Vercel (로컬 개발 중)
+- **프레임워크**: Next.js 16.0.10 (Turbopack), React 19.2.3
 - **최근 마이그레이션**: 
   - `015_create_forms_system.sql` (설문/퀴즈 통합 시스템)
   - `016_create_webinar_files.sql` (발표자료 관리)

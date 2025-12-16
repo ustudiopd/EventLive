@@ -428,6 +428,29 @@
   - `client_id`가 없는 경우: 새 클라이언트 생성 및 owner 역할 부여
   - 두 가지 시나리오 모두 지원
 
+## [2025-12-16] Next.js 16 업그레이드 및 보안 취약점 해결
+- ✅ Next.js 15 → 16 업그레이드
+  - Next.js 16.0.10 설치 완료
+  - React 18 → 19 업그레이드 (Next.js 16 요구사항)
+  - React 19.2.3 설치 완료
+- ✅ 관련 패키지 업데이트
+  - `@types/react`: ^18 → ^19
+  - `@types/react-dom`: ^18 → ^19
+  - `eslint-config-next`: ^15.0.0 → ^16.0.0
+  - `eslint`: ^8 → ^9 (Next.js 16 요구사항)
+- ✅ 보안 취약점 해결
+  - Next.js 15.5.0-15.5.7의 critical 취약점 해결 (RCE, Server Actions Source Code Exposure, DoS)
+  - glob 패키지의 high 취약점 해결 (Command injection)
+  - 모든 취약점 해결 완료 (0 vulnerabilities)
+- ✅ 빌드 테스트 완료
+  - Next.js 16.0.10 (Turbopack)로 정상 컴파일
+  - TypeScript 검증 통과
+  - 33개 정적 페이지 생성 완료
+- ⚠️ 향후 작업: middleware → proxy 마이그레이션
+  - Next.js 16에서 `middleware.ts`가 deprecated됨
+  - `proxy.ts`로 마이그레이션 필요 (향후 Next.js 17+ 호환성)
+  - 현재는 경고만 표시되며 기능은 정상 동작
+
 ## 남은 작업
 
 ### Phase 3 - 웨비나 및 실시간 기능 (대부분 완료)
