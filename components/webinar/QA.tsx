@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClientSupabase } from '@/lib/supabase/client'
 
 interface Question {
@@ -66,21 +66,50 @@ export default function QA({
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [currentUserProfile, setCurrentUserProfile] = useState<{ display_name?: string; email?: string } | null>(null)
   const supabase = createClientSupabase()
+  const filterRef = useRef<'all' | 'mine'>('all')
   
-  const loadQuestions = useCallback(async () => {
+  // filter 상태 변경 시 ref 업데이트
+  useEffect(() => {
+    filterRef.current = filter
+  }, [filter])
+  
+  const loadQuestions = useCallback(async (currentFilter?: 'all' | 'mine') => {
+    // currentFilter 파라미터를 사용하여 필터 변경으로 인한 재호출 방지
+    const activeFilter = currentFilter ?? filterRef.current
     setLoading(true)
     try {
+      // "내 질문" 필터 선택 시 로그인 상태 확인
+      if (activeFilter === 'mine' && !isAdminMode) {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          // 로그인하지 않은 경우 필터를 "전체"로 변경하고 종료
+          setFilter('all')
+          setLoading(false)
+          return
+        }
+      }
+      
       // API를 통해 질문 조회 (프로필 정보 포함, RLS 우회)
       // 관리자 모드일 때는 항상 전체 질문 조회
       const params = new URLSearchParams({
-        onlyMine: isAdminMode ? 'false' : (filter === 'mine' ? 'true' : (showOnlyMine ? 'true' : 'false')),
+        onlyMine: isAdminMode ? 'false' : (activeFilter === 'mine' ? 'true' : (showOnlyMine ? 'true' : 'false')),
         filter: 'all', // 필터는 클라이언트에서 처리하지 않고 서버에서는 항상 'all'
       })
       
       const response = await fetch(`/api/webinars/${webinarId}/questions?${params}`)
       
       if (!response.ok) {
-        throw new Error('질문 조회 실패')
+        const errorData = await response.json().catch(() => ({}))
+        // 401 에러이고 로그인하지 않은 경우에만 필터를 "전체"로 변경
+        if (response.status === 401 && activeFilter === 'mine' && !isAdminMode) {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (!user) {
+            setFilter('all')
+            setLoading(false)
+            return
+          }
+        }
+        throw new Error(errorData.error || '질문 조회 실패')
       }
       
       const { questions } = await response.json()
@@ -88,10 +117,11 @@ export default function QA({
       setQuestions(loadedQuestions)
     } catch (error) {
       console.error('질문 로드 실패:', error)
+      // 에러 발생 시에도 기존 질문 목록은 유지 (필터 상태는 위에서 처리)
     } finally {
       setLoading(false)
     }
-  }, [webinarId, showOnlyMine, filter, isAdminMode])
+  }, [webinarId, showOnlyMine, filter, isAdminMode, supabase])
   
   // 현재 사용자 ID 및 프로필 정보 로드
   useEffect(() => {
@@ -119,7 +149,7 @@ export default function QA({
   }, [supabase])
   
   useEffect(() => {
-    loadQuestions()
+    loadQuestions(filterRef.current)
     
     // 고정 채널명 사용
     const channelName = `webinar:${webinarId}:questions`
@@ -185,8 +215,8 @@ export default function QA({
             // 프로필 정보를 위해 나중에 전체 새로고침 (선택적)
             // loadQuestions()
           } else {
-            // DELETE 등 다른 이벤트는 전체 새로고침
-            loadQuestions()
+            // DELETE 등 다른 이벤트는 전체 새로고침 (현재 필터 유지)
+            loadQuestions(filterRef.current)
           }
         }
       )
@@ -216,10 +246,10 @@ export default function QA({
             reconnectTimeouts.push(timeout)
           } else {
             console.warn('질문 실시간 구독 최대 재시도 횟수 초과, 폴백 폴링 활성화')
-            // 폴백: 주기적으로 질문 새로고침
+            // 폴백: 주기적으로 질문 새로고침 (현재 필터 유지)
             if (!fallbackInterval) {
               fallbackInterval = setInterval(() => {
-                loadQuestions()
+                loadQuestions(filterRef.current)
               }, 5000) // 5초마다 폴링
             }
           }
@@ -377,7 +407,7 @@ export default function QA({
       }
       
       // 질문 목록 새로고침
-      await loadQuestions()
+      await loadQuestions(filterRef.current)
       
       // 답변 완료 후 모달 닫기
       setSelectedQuestion(null)
@@ -497,7 +527,7 @@ export default function QA({
                             }
                             
                             // 질문 목록 새로고침
-                            await loadQuestions()
+                            await loadQuestions(filterRef.current)
                           } catch (error: any) {
                             console.error('핀 상태 변경 실패:', error)
                             alert(error.message || '핀 상태 변경에 실패했습니다')
@@ -655,7 +685,7 @@ export default function QA({
                             }
                             
                             // 질문 목록 새로고침
-                            await loadQuestions()
+                            await loadQuestions(filterRef.current)
                           } catch (error: any) {
                             console.error('질문 삭제 실패:', error)
                             alert(error.message || '질문 삭제에 실패했습니다')

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth/guards'
+import { createServerSupabase } from '@/lib/supabase/server'
 import { createAdminSupabase } from '@/lib/supabase/admin'
 
 export const runtime = 'nodejs'
@@ -18,7 +18,17 @@ export async function GET(
     const showOnlyMine = searchParams.get('onlyMine') === 'true'
     const filter = searchParams.get('filter') || 'all'
     
-    const { user } = await requireAuth()
+    const supabase = await createServerSupabase()
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    // "내 질문" 필터인데 로그인하지 않은 경우
+    if (showOnlyMine && !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized', questions: [] },
+        { status: 401 }
+      )
+    }
+    
     const admin = createAdminSupabase()
     
     // 웨비나 존재 확인
@@ -50,7 +60,7 @@ export async function GET(
       `)
       .eq('webinar_id', webinarId)
     
-    if (showOnlyMine) {
+    if (showOnlyMine && user) {
       query = query.eq('user_id', user.id)
     }
     
