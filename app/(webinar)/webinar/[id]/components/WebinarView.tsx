@@ -592,7 +592,52 @@ export default function WebinarView({ webinar, isAdminMode = false }: WebinarVie
               {webinar.description ? (
                 <div className="prose prose-sm max-w-none">
                   <p className="text-xs sm:text-sm lg:text-base text-gray-700 whitespace-pre-wrap leading-relaxed">
-                    {webinar.description}
+                    {(() => {
+                      // URL을 감지하고 링크로 변환하는 함수
+                      const urlRegex = /(https?:\/\/[^\s]+)/g
+                      const parts: string[] = []
+                      let lastIndex = 0
+                      let match
+                      
+                      // 정규식으로 모든 URL 찾기
+                      while ((match = urlRegex.exec(webinar.description)) !== null) {
+                        // URL 이전 텍스트 추가
+                        if (match.index > lastIndex) {
+                          parts.push(webinar.description.substring(lastIndex, match.index))
+                        }
+                        // URL 추가 (특별한 마커로 표시)
+                        parts.push(`__URL__${match[0]}__URL__`)
+                        lastIndex = urlRegex.lastIndex
+                      }
+                      
+                      // 마지막 텍스트 추가
+                      if (lastIndex < webinar.description.length) {
+                        parts.push(webinar.description.substring(lastIndex))
+                      }
+                      
+                      // URL이 없으면 원본 반환
+                      if (parts.length === 0) {
+                        parts.push(webinar.description)
+                      }
+                      
+                      return parts.map((part, index) => {
+                        if (part.startsWith('__URL__') && part.endsWith('__URL__')) {
+                          const url = part.replace(/^__URL__|__URL__$/g, '')
+                          return (
+                            <a
+                              key={index}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 hover:underline break-all"
+                            >
+                              {url}
+                            </a>
+                          )
+                        }
+                        return <span key={index}>{part}</span>
+                      })
+                    })()}
                   </p>
                 </div>
               ) : (
