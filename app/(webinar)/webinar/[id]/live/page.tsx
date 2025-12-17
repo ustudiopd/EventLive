@@ -65,33 +65,33 @@ export default async function WebinarLivePage({
   // 먼저 관리자 권한이 있는지 확인하여 자동 관리자 모드 활성화 여부 결정
   let hasAdminPermission = false
   if (user) {
-    // JWT app_metadata에서 슈퍼어드민 권한 확인
-    const isSuperAdmin = !!user?.app_metadata?.is_super_admin
-    
-    if (isSuperAdmin) {
-      hasAdminPermission = true
-    } else {
-      // 클라이언트 멤버십 확인 (Admin Supabase로 RLS 우회)
-      const { data: clientMember } = await admin
-        .from('client_members')
-        .select('role')
-        .eq('client_id', webinar.client_id)
-        .eq('user_id', user.id)
-        .maybeSingle()
+      // JWT app_metadata에서 슈퍼어드민 권한 확인
+      const isSuperAdmin = !!user?.app_metadata?.is_super_admin
       
-      // 클라이언트 멤버는 모든 역할에서 운영 권한 부여 (owner, admin, operator, member)
-      if (clientMember && ['owner', 'admin', 'operator', 'member'].includes(clientMember.role)) {
-        hasAdminPermission = true
+      if (isSuperAdmin) {
+      hasAdminPermission = true
       } else {
-        // 에이전시 멤버십 확인 (owner, admin만 운영 권한 부여)
-        const { data: agencyMember } = await admin
-          .from('agency_members')
+        // 클라이언트 멤버십 확인 (Admin Supabase로 RLS 우회)
+        const { data: clientMember } = await admin
+          .from('client_members')
           .select('role')
-          .eq('agency_id', webinar.agency_id)
+          .eq('client_id', webinar.client_id)
           .eq('user_id', user.id)
           .maybeSingle()
         
-        if (agencyMember && ['owner', 'admin'].includes(agencyMember.role)) {
+        // 클라이언트 멤버는 모든 역할에서 운영 권한 부여 (owner, admin, operator, member)
+        if (clientMember && ['owner', 'admin', 'operator', 'member'].includes(clientMember.role)) {
+        hasAdminPermission = true
+        } else {
+          // 에이전시 멤버십 확인 (owner, admin만 운영 권한 부여)
+          const { data: agencyMember } = await admin
+            .from('agency_members')
+            .select('role')
+            .eq('agency_id', webinar.agency_id)
+            .eq('user_id', user.id)
+            .maybeSingle()
+          
+          if (agencyMember && ['owner', 'admin'].includes(agencyMember.role)) {
           hasAdminPermission = true
         }
       }
@@ -99,8 +99,8 @@ export default async function WebinarLivePage({
     
     // URL 파라미터로 명시적으로 admin=false가 아닌 경우, 관리자 권한이 있으면 자동 관리자 모드 활성화
     if (hasAdminPermission && searchParamsData?.admin !== 'false') {
-      isAdminMode = true
-    }
+            isAdminMode = true
+          }
     
     // 관리자 모드가 아닐 때만 등록 확인
     if (!isAdminMode) {
@@ -127,7 +127,7 @@ export default async function WebinarLivePage({
     
     // 특정 이메일은 권한 확인 건너뛰기
     if (!isAutoAdminEmail && !hasAdminPermission) {
-      // 권한이 없으면 일반 입장 페이지로 리다이렉트
+        // 권한이 없으면 일반 입장 페이지로 리다이렉트
       redirect(`/webinar/${webinarId}`)
     }
   } else {

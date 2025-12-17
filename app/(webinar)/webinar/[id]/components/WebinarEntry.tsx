@@ -609,7 +609,7 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
   // 썸네일 이미지 URL
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
   const thumbnailUrl = supabaseUrl ? `${supabaseUrl}/storage/v1/object/public/webinar-thumbnails/edm.png` : ''
-
+  
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex items-center justify-center p-4">
       <div className="w-full max-w-2xl">

@@ -11,8 +11,15 @@ export default async function WebinarPage({
   const { id } = await params
   const admin = createAdminSupabase()
   
+  // Next.js 동적 라우트는 자동으로 URL 디코딩하므로, id는 이미 디코딩된 상태
   // UUID 또는 slug로 웨비나 조회
   const query = getWebinarQuery(id)
+  
+  console.log('WebinarPage 조회:', {
+    id,
+    queryColumn: query.column,
+    queryValue: query.value
+  })
   
         // 웨비나 정보 조회 (RLS 우회하여 누구나 접근 가능하도록)
         // 입장 페이지는 public이므로 기본 정보만 조회

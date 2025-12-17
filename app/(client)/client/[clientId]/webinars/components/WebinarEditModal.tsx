@@ -62,17 +62,17 @@ export default function WebinarEditModal({
       
       const initializeFormData = async () => {
         const emails = await loadAllowedEmails()
-        setFormData({
-          title: webinar.title || '',
-          description: webinar.description || '',
-          youtubeUrl: webinar.youtube_url || '',
-          startTime: formatDateTime(webinar.start_time),
-          endTime: formatDateTime(webinar.end_time),
-          maxParticipants: webinar.max_participants ? String(webinar.max_participants) : '',
-          isPublic: webinar.is_public || false,
-          accessPolicy: webinar.access_policy || 'auth',
+      setFormData({
+        title: webinar.title || '',
+        description: webinar.description || '',
+        youtubeUrl: webinar.youtube_url || '',
+        startTime: formatDateTime(webinar.start_time),
+        endTime: formatDateTime(webinar.end_time),
+        maxParticipants: webinar.max_participants ? String(webinar.max_participants) : '',
+        isPublic: webinar.is_public || false,
+        accessPolicy: webinar.access_policy || 'auth',
           allowedEmails: emails,
-        })
+      })
       }
       
       initializeFormData()

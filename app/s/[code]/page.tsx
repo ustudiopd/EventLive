@@ -138,11 +138,14 @@ export default async function ShortLinkRedirectPage({
   })
 
     const queryString = queryParams.toString()
+    // Next.js redirect는 자동으로 URL 인코딩하므로, slug를 그대로 사용
     const redirectUrl = queryString 
       ? `/webinar/${webinarSlug}?${queryString}`
       : `/webinar/${webinarSlug}`
 
-    // slug로 리다이렉트 (파라미터 포함)
+    console.log('리다이렉트 URL:', redirectUrl, 'slug:', webinarSlug)
+
+    // slug로 리다이렉트 (파라미터 포함, Next.js가 자동 인코딩)
     redirect(redirectUrl)
   } catch (err: any) {
     console.error('ShortLinkRedirectPage 에러:', err)

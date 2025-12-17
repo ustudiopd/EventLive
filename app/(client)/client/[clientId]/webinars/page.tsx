@@ -203,28 +203,28 @@ export default function WebinarsPage() {
                                 const webinarSlug = webinar.slug || webinar.id
                                 return (
                                   <>
-                                    <Link 
+                              <Link 
                                       href={`/webinar/${webinarSlug}`}
-                                      className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
-                                    >
-                                      웨비나링크
-                                    </Link>
-                                    <ShareLinkButton 
-                                      webinarId={webinar.id} 
-                                      webinarTitle={webinar.title}
-                                    />
-                                    <Link 
+                                className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
+                              >
+                                웨비나링크
+                              </Link>
+                              <ShareLinkButton 
+                                webinarId={webinar.id} 
+                                webinarTitle={webinar.title}
+                              />
+                              <Link 
                                       href={`/webinar/${webinarSlug}/live?admin=true`}
-                                      className="text-green-600 hover:text-green-800 font-medium hover:underline"
-                                    >
-                                      관리자 접속
-                                    </Link>
-                                    <Link 
+                                className="text-green-600 hover:text-green-800 font-medium hover:underline"
+                              >
+                                관리자 접속
+                              </Link>
+                              <Link 
                                       href={`/webinar/${webinarSlug}/console`}
-                                      className="text-purple-600 hover:text-purple-800 font-medium hover:underline"
-                                    >
-                                      콘솔
-                                    </Link>
+                                className="text-purple-600 hover:text-purple-800 font-medium hover:underline"
+                              >
+                                콘솔
+                              </Link>
                                   </>
                                 )
                               })()}
