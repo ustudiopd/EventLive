@@ -155,10 +155,10 @@ export default async function ShortLinkRedirectPage({
     })
 
     const queryString = queryParams.toString()
-    // UUID로 리다이렉트 (임시)
+    // UUID로 리다이렉트 (/live 경로 포함)
     const redirectUrl = queryString 
-      ? `/webinar/${webinarSlug}?${queryString}`
-      : `/webinar/${webinarSlug}`
+      ? `/webinar/${webinarSlug}/live?${queryString}`
+      : `/webinar/${webinarSlug}/live`
 
     console.log('[ShortLink] 리다이렉트 실행:', {
       code,

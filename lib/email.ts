@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import { createAdminSupabase } from './supabase/admin'
 
 /**
  * 이메일 발송을 위한 transporter 생성
@@ -46,28 +47,38 @@ export async function sendWebinarRegistrationEmail(
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    // 이메일 파라미터를 포함한 입장 링크 (자동 로그인용, slug 사용)
-    const entryUrl = `${baseUrl}/webinar/${webinarIdOrSlug}/live?email=${encodeURIComponent(to)}`
+    
+    // 웨비나 ID 확인 (UUID인지 slug인지 판별)
+    const admin = createAdminSupabase()
+    let webinarId: string
+    
+    // UUID 형식인지 확인 (8-4-4-4-12 형식)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (uuidRegex.test(webinarIdOrSlug)) {
+      webinarId = webinarIdOrSlug
+    } else {
+      // slug인 경우 웨비나 ID 조회
+      const { data: webinar } = await admin
+        .from('webinars')
+        .select('id')
+        .eq('slug', webinarIdOrSlug)
+        .single()
+      
+      if (!webinar) {
+        console.error('웨비나를 찾을 수 없습니다:', webinarIdOrSlug)
+        return false
+      }
+      webinarId = webinar.id
+    }
+    
+    // 풀 UUID 주소 사용 (입장 페이지로 이동, 이메일 파라미터 포함)
+    const entryUrl = `${baseUrl}/webinar/${webinarId}?email=${encodeURIComponent(to)}`
+    
     // 행사 썸네일 이미지 URL
     const thumbnailUrl = `${supabaseUrl}/storage/v1/object/public/webinar-thumbnails/edm.png`
     
-    // 날짜/시간 포맷팅 (예: "2025.12.17 오후7시")
-    let formattedDateTime = ''
-    if (startTime) {
-      try {
-        const date = new Date(startTime)
-        // 로컬 시간대로 변환
-        const year = date.getFullYear()
-        const month = date.getMonth() + 1
-        const day = date.getDate()
-        const hours = date.getHours()
-        const ampm = hours >= 12 ? '오후' : '오전'
-        const displayHour = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours)
-        formattedDateTime = `${year}.${month.toString().padStart(2, '0')}.${day.toString().padStart(2, '0')} ${ampm}${displayHour}시`
-      } catch (e) {
-        console.error('날짜 포맷팅 오류:', e)
-      }
-    }
+    // 날짜 고정 텍스트
+    const formattedDateTime = '2025.12.17일'
 
     const mailOptions = {
       from: `"모두의특강" <${process.env.SMTP_USER || 'admin@modoolecture.com'}>`,
@@ -105,7 +116,7 @@ export async function sendWebinarRegistrationEmail(
                 <p style="font-size: 16px; color: #374151; line-height: 1.8; margin-bottom: 20px;">에 신청해주셔서 감사합니다</p>
                 
                 <p style="font-size: 16px; color: #374151; line-height: 1.8; margin-bottom: 10px;">해당 라이브는</p>
-                ${formattedDateTime ? `<p style="font-size: 16px; color: #374151; line-height: 1.8; margin-bottom: 20px; font-weight: 600;">${formattedDateTime}에 시작합니다</p>` : ''}
+                <p style="font-size: 16px; color: #374151; line-height: 1.8; margin-bottom: 20px; font-weight: 600;">${formattedDateTime}에 시작합니다</p>
                 <p style="font-size: 16px; color: #374151; line-height: 1.8; margin-bottom: 30px;">해당링크를 눌러 접속하시면됩니다</p>
               </div>
               
@@ -134,7 +145,7 @@ ${webinarTitle}
 에 신청해주셔서 감사합니다
 
 해당 라이브는
-${formattedDateTime ? formattedDateTime + '에 시작합니다' : '곧 시작합니다'}
+${formattedDateTime}에 시작합니다
 해당링크를 눌러 접속하시면됩니다
 
 ${entryUrl}

@@ -100,7 +100,33 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
               setLoading(false)
               return
             }
-            window.location.href = `/webinar/${webinarSlug}/live`
+            
+            // 세션이 설정될 때까지 대기
+            await new Promise(resolve => setTimeout(resolve, 500))
+            
+            // 웨비나 등록 확인 및 등록
+            const { data: { user } } = await supabase.auth.getUser()
+            if (user) {
+              const { data: registration } = await supabase
+                .from('registrations')
+                .select('webinar_id, user_id')
+                .eq('webinar_id', webinar.id)
+                .eq('user_id', user.id)
+                .maybeSingle()
+              
+              if (!registration) {
+                try {
+                  await fetch(`/api/webinars/${webinar.id}/register`, {
+                    method: 'POST',
+                  })
+                } catch (error) {
+                  console.error('웨비나 등록 오류:', error)
+                }
+              }
+            }
+            
+            // UUID를 사용하여 라이브 페이지로 이동
+            window.location.href = `/webinar/${webinar.id}/live`
           }
         } catch (err: any) {
           setError(err.message || '자동 로그인 중 오류가 발생했습니다')
@@ -145,13 +171,13 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
                   }
                 }
                 
-                window.location.href = `/webinar/${webinarSlug}/live`
+                window.location.href = `/webinar/${webinar.id}/live`
                 return
               }
               await new Promise(resolve => setTimeout(resolve, 100))
             }
             // 프로필이 없어도 진행 (트리거가 생성할 것)
-            window.location.href = `/webinar/${webinarSlug}/live`
+            window.location.href = `/webinar/${webinar.id}/live`
           }
           checkProfile()
         }
@@ -186,7 +212,7 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
           }
           
           setTimeout(() => {
-            window.location.href = `/webinar/${webinarSlug}/live`
+            window.location.href = `/webinar/${webinar.id}/live`
           }, 2000) // 2초 후 자동 이동
         }
       })
