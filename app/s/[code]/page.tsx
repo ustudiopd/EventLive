@@ -96,12 +96,24 @@ export default async function ShortLinkRedirectPage({
     .single()
 
   if (webinarError || !webinar) {
-    console.error('웨비나 조회 실패:', webinarError)
+    console.error('웨비나 조회 실패:', {
+      error: webinarError,
+      webinarId: shortLink.webinar_id,
+      code
+    })
     redirect('/')
   }
 
   // slug가 있으면 slug를 사용하고, 없으면 id를 사용
-  const webinarSlug = webinar.slug || webinar.id
+  // slug가 null이거나 빈 문자열이면 id 사용
+  const webinarSlug = (webinar.slug && webinar.slug.trim()) ? webinar.slug : webinar.id
+  
+  console.log('짧은 링크 리다이렉트:', {
+    code,
+    webinarId: webinar.id,
+    slug: webinar.slug,
+    finalSlug: webinarSlug
+  })
 
   // URL 파라미터 유지 (이메일 등)
   const queryParams = new URLSearchParams()
