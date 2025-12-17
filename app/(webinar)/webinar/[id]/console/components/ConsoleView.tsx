@@ -50,13 +50,21 @@ export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
               </div>
               <p className="text-sm text-gray-600 mt-1">{webinar.title}</p>
             </div>
-            {webinar.clients?.logo_url && (
-              <img 
-                src={webinar.clients.logo_url} 
-                alt={webinar.clients.name}
-                className="h-12 w-auto"
-              />
-            )}
+            <div className="flex items-center gap-3">
+              <Link
+                href={`/webinar/${webinar.id}/live?admin=true`}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap"
+              >
+                관리자 접속
+              </Link>
+              {webinar.clients?.logo_url && (
+                <img 
+                  src={webinar.clients.logo_url} 
+                  alt={webinar.clients.name}
+                  className="h-12 w-auto"
+                />
+              )}
+            </div>
           </div>
         </div>
       </header>

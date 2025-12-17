@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClientSupabase } from '@/lib/supabase/client'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 export default function ResetPasswordConfirmPage() {
@@ -13,7 +13,6 @@ export default function ResetPasswordConfirmPage() {
   const [success, setSuccess] = useState(false)
   const [isValidToken, setIsValidToken] = useState<boolean | null>(null)
   const router = useRouter()
-  const searchParams = useSearchParams()
   const supabase = createClientSupabase()
   
   useEffect(() => {
@@ -216,4 +215,6 @@ export default function ResetPasswordConfirmPage() {
     </div>
   )
 }
+
+
 

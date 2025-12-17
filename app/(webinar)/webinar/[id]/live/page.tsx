@@ -52,53 +52,59 @@ export default async function WebinarLivePage({
     isAdminMode = true
   }
   
-  // 사용자가 있으면 해당 웨비나에 등록되어 있는지 확인 (모든 모드에서 필수)
+  // 사용자가 있으면 해당 웨비나에 등록되어 있는지 확인 (관리자 모드가 아닐 때만 필수)
+  // 먼저 관리자 권한이 있는지 확인하여 자동 관리자 모드 활성화 여부 결정
+  let hasAdminPermission = false
   if (user) {
-    const { data: registration } = await admin
-      .from('registrations')
-      .select('webinar_id, user_id')
-      .eq('webinar_id', id)
-      .eq('user_id', user.id)
-      .maybeSingle()
+    // JWT app_metadata에서 슈퍼어드민 권한 확인
+    const isSuperAdmin = !!user?.app_metadata?.is_super_admin
     
-    // 등록되어 있지 않으면 입장 페이지로 리다이렉트 (웨비나별 독립 등록 필수)
-    if (!registration) {
-      redirect(`/webinar/${id}`)
-    }
-    
-    // 클라이언트 멤버 또는 에이전시 멤버인 경우 자동으로 운영 권한 부여
-    // (URL 파라미터로 명시적으로 admin=false가 아닌 경우에만)
-    if (searchParamsData?.admin !== 'false') {
-      // JWT app_metadata에서 슈퍼어드민 권한 확인
-      const isSuperAdmin = !!user?.app_metadata?.is_super_admin
+    if (isSuperAdmin) {
+      hasAdminPermission = true
+    } else {
+      // 클라이언트 멤버십 확인 (Admin Supabase로 RLS 우회)
+      const { data: clientMember } = await admin
+        .from('client_members')
+        .select('role')
+        .eq('client_id', webinar.client_id)
+        .eq('user_id', user.id)
+        .maybeSingle()
       
-      if (isSuperAdmin) {
-        isAdminMode = true
+      // 클라이언트 멤버는 모든 역할에서 운영 권한 부여 (owner, admin, operator, member)
+      if (clientMember && ['owner', 'admin', 'operator', 'member'].includes(clientMember.role)) {
+        hasAdminPermission = true
       } else {
-        // 클라이언트 멤버십 확인 (Admin Supabase로 RLS 우회)
-        const { data: clientMember } = await admin
-          .from('client_members')
+        // 에이전시 멤버십 확인 (owner, admin만 운영 권한 부여)
+        const { data: agencyMember } = await admin
+          .from('agency_members')
           .select('role')
-          .eq('client_id', webinar.client_id)
+          .eq('agency_id', webinar.agency_id)
           .eq('user_id', user.id)
           .maybeSingle()
         
-        // 클라이언트 멤버는 모든 역할에서 운영 권한 부여 (owner, admin, operator, member)
-        if (clientMember && ['owner', 'admin', 'operator', 'member'].includes(clientMember.role)) {
-          isAdminMode = true
-        } else {
-          // 에이전시 멤버십 확인 (owner, admin만 운영 권한 부여)
-          const { data: agencyMember } = await admin
-            .from('agency_members')
-            .select('role')
-            .eq('agency_id', webinar.agency_id)
-            .eq('user_id', user.id)
-            .maybeSingle()
-          
-          if (agencyMember && ['owner', 'admin'].includes(agencyMember.role)) {
-            isAdminMode = true
-          }
+        if (agencyMember && ['owner', 'admin'].includes(agencyMember.role)) {
+          hasAdminPermission = true
         }
+      }
+    }
+    
+    // URL 파라미터로 명시적으로 admin=false가 아닌 경우, 관리자 권한이 있으면 자동 관리자 모드 활성화
+    if (hasAdminPermission && searchParamsData?.admin !== 'false') {
+      isAdminMode = true
+    }
+    
+    // 관리자 모드가 아닐 때만 등록 확인
+    if (!isAdminMode) {
+      const { data: registration } = await admin
+        .from('registrations')
+        .select('webinar_id, user_id')
+        .eq('webinar_id', id)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      
+      // 등록되어 있지 않으면 입장 페이지로 리다이렉트 (웨비나별 독립 등록 필수)
+      if (!registration) {
+        redirect(`/webinar/${id}`)
       }
     }
   }
@@ -111,45 +117,9 @@ export default async function WebinarLivePage({
     }
     
     // 특정 이메일은 권한 확인 건너뛰기
-    if (!isAutoAdminEmail) {
-      // JWT app_metadata에서 슈퍼어드민 권한 확인
-      const isSuperAdmin = !!user?.app_metadata?.is_super_admin
-      
-      let hasAdminPermission = false
-      
-      if (isSuperAdmin) {
-        hasAdminPermission = true
-      } else {
-        // 클라이언트 멤버십 확인 (Admin Supabase로 RLS 우회)
-        const { data: clientMember } = await admin
-          .from('client_members')
-          .select('role')
-          .eq('client_id', webinar.client_id)
-          .eq('user_id', user.id)
-          .maybeSingle()
-        
-        // 클라이언트 멤버는 모든 역할에서 운영 권한 부여
-        if (clientMember && ['owner', 'admin', 'operator', 'member'].includes(clientMember.role)) {
-          hasAdminPermission = true
-        } else {
-          // 에이전시 멤버십 확인
-          const { data: agencyMember } = await admin
-            .from('agency_members')
-            .select('role')
-            .eq('agency_id', webinar.agency_id)
-            .eq('user_id', user.id)
-            .maybeSingle()
-          
-          if (agencyMember && ['owner', 'admin'].includes(agencyMember.role)) {
-            hasAdminPermission = true
-          }
-        }
-      }
-      
-      if (!hasAdminPermission) {
-        // 권한이 없으면 일반 입장 페이지로 리다이렉트
-        redirect(`/webinar/${id}`)
-      }
+    if (!isAutoAdminEmail && !hasAdminPermission) {
+      // 권한이 없으면 일반 입장 페이지로 리다이렉트
+      redirect(`/webinar/${id}`)
     }
   } else {
     // 일반 모드: 접근 정책 확인

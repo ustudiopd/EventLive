@@ -1673,12 +1673,22 @@ export default function Chat({
         {/* 더보기 로딩 표시 */}
         {loadingMore && (
           <div className="text-center text-gray-500 py-2 text-xs sm:text-sm">
-            과거 메시지 불러오는 중...
+            과거 메시지 불러오는 중<span className="inline-flex">
+              <span className="animate-loading-dot" style={{ animationDelay: '0s' }}>.</span>
+              <span className="animate-loading-dot" style={{ animationDelay: '0.2s' }}>.</span>
+              <span className="animate-loading-dot" style={{ animationDelay: '0.4s' }}>.</span>
+            </span>
           </div>
         )}
         
         {loading && messages.length === 0 ? (
-          <div className="text-center text-gray-500 py-8 text-xs sm:text-sm">메시지를 불러오는 중...</div>
+          <div className="text-center text-gray-500 py-8 text-xs sm:text-sm">
+            메시지를 불러오는 중<span className="inline-flex">
+              <span className="animate-loading-dot" style={{ animationDelay: '0s' }}>.</span>
+              <span className="animate-loading-dot" style={{ animationDelay: '0.2s' }}>.</span>
+              <span className="animate-loading-dot" style={{ animationDelay: '0.4s' }}>.</span>
+            </span>
+          </div>
         ) : messages.length === 0 ? (
           <div className="text-center text-gray-500 py-8 text-xs sm:text-sm">아직 메시지가 없습니다</div>
         ) : (

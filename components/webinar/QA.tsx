@@ -55,7 +55,7 @@ export default function QA({
   const [newQuestion, setNewQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'published' | 'answered' | 'pinned'>('all')
+  const [filter, setFilter] = useState<'all' | 'mine'>('all')
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null)
   const [answerText, setAnswerText] = useState('')
   const [answering, setAnswering] = useState(false)
@@ -73,8 +73,8 @@ export default function QA({
       // API를 통해 질문 조회 (프로필 정보 포함, RLS 우회)
       // 관리자 모드일 때는 항상 전체 질문 조회
       const params = new URLSearchParams({
-        onlyMine: isAdminMode ? 'false' : (showOnlyMine ? 'true' : 'false'),
-        filter: filter,
+        onlyMine: isAdminMode ? 'false' : (filter === 'mine' ? 'true' : (showOnlyMine ? 'true' : 'false')),
+        filter: 'all', // 필터는 클라이언트에서 처리하지 않고 서버에서는 항상 'all'
       })
       
       const response = await fetch(`/api/webinars/${webinarId}/questions?${params}`)
@@ -86,19 +86,6 @@ export default function QA({
       const { questions } = await response.json()
       const loadedQuestions = questions || []
       setQuestions(loadedQuestions)
-      
-      // 답변이 있는 질문은 기본적으로 펼쳐진 상태로 설정
-      const answeredQuestionIds = loadedQuestions
-        .filter((q: Question) => q.status === 'answered' && q.answer)
-        .map((q: Question) => q.id)
-      
-      if (answeredQuestionIds.length > 0) {
-        setExpandedAnswers((prev) => {
-          const next = new Set(prev)
-          answeredQuestionIds.forEach((id: number) => next.add(id))
-          return next
-        })
-      }
     } catch (error) {
       console.error('질문 로드 실패:', error)
     } finally {
@@ -176,16 +163,9 @@ export default function QA({
             fallbackInterval = null
           }
           
-          // UPDATE 이벤트에서 답변이 추가된 경우 자동으로 펼치기 및 즉시 업데이트
+          // UPDATE 이벤트에서 답변이 추가된 경우 즉시 업데이트 (자동 펼치기 없음)
           if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedQuestion = payload.new as any
-            if (updatedQuestion.status === 'answered' && updatedQuestion.answer) {
-              setExpandedAnswers((prev) => {
-                const next = new Set(prev)
-                next.add(updatedQuestion.id)
-                return next
-              })
-            }
             
             // Optimistic 업데이트: 질문 목록에서 즉시 업데이트 (전체 새로고침 없이)
             setQuestions((prev) => prev.map((q) => 
@@ -429,34 +409,14 @@ export default function QA({
             전체
           </button>
           <button
-            onClick={() => setFilter('published')}
+            onClick={() => setFilter('mine')}
             className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-              filter === 'published' 
+              filter === 'mine' 
                 ? 'bg-blue-600 text-white' 
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            미답변
-          </button>
-          <button
-            onClick={() => setFilter('answered')}
-            className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-              filter === 'answered' 
-                ? 'bg-blue-600 text-white' 
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            답변됨
-          </button>
-          <button
-            onClick={() => setFilter('pinned')}
-            className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-              filter === 'pinned' 
-                ? 'bg-blue-600 text-white' 
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            고정됨
+            내 질문
           </button>
         </div>
       </div>
@@ -464,7 +424,13 @@ export default function QA({
       {/* 질문 목록 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {loading && questions.length === 0 ? (
-          <div className="text-center text-gray-500 py-8">질문을 불러오는 중...</div>
+          <div className="text-center text-gray-500 py-8">
+            질문을 불러오는 중<span className="inline-flex">
+              <span className="animate-loading-dot" style={{ animationDelay: '0s' }}>.</span>
+              <span className="animate-loading-dot" style={{ animationDelay: '0.2s' }}>.</span>
+              <span className="animate-loading-dot" style={{ animationDelay: '0.4s' }}>.</span>
+            </span>
+          </div>
         ) : questions.length === 0 ? (
           <div className="text-center text-gray-500 py-8">아직 질문이 없습니다</div>
         ) : (
@@ -502,9 +468,64 @@ export default function QA({
                       <span className="text-xs bg-green-400 text-green-900 px-2 py-0.5 rounded">답변됨</span>
                     )}
                   </div>
-                  <span className="text-xs text-gray-500">
-                    {formatTime(question.created_at)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">
+                      {formatTime(question.created_at)}
+                    </span>
+                    {/* 관리자 모드: 핀 버튼 */}
+                    {isAdminMode && (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          try {
+                            const { data: { user } } = await supabase.auth.getUser()
+                            if (!user) return
+                            
+                            const newStatus = question.status === 'pinned' ? 'published' : 'pinned'
+                            const response = await fetch(`/api/questions/${question.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                status: newStatus,
+                              }),
+                            })
+                            
+                            const result = await response.json()
+                            
+                            if (!response.ok || result.error) {
+                              throw new Error(result.error || '상태 변경 실패')
+                            }
+                            
+                            // 질문 목록 새로고침
+                            await loadQuestions()
+                          } catch (error: any) {
+                            console.error('핀 상태 변경 실패:', error)
+                            alert(error.message || '핀 상태 변경에 실패했습니다')
+                          }
+                        }}
+                        className={`p-1 rounded transition-colors ${
+                          question.status === 'pinned'
+                            ? 'text-yellow-600 hover:text-yellow-800 hover:bg-yellow-100'
+                            : 'text-gray-400 hover:text-yellow-600 hover:bg-gray-100'
+                        }`}
+                        title={question.status === 'pinned' ? '고정 해제' : '고정'}
+                      >
+                        <svg 
+                          className="w-3.5 h-3.5" 
+                          fill={question.status === 'pinned' ? 'currentColor' : 'none'} 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
+                        >
+                          <path 
+                            strokeLinecap="round" 
+                            strokeLinejoin="round" 
+                            strokeWidth={2} 
+                            d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" 
+                          />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <p className="text-sm text-gray-700 mb-2">{question.content}</p>
                 

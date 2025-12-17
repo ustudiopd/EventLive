@@ -1029,8 +1029,8 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
                 ) : (
                   <>
                     등록이 완료되었습니다!<br />
-                    <strong>{email}</strong>로 전송된 인증 이메일을 확인해주세요.<br />
-                    이메일 인증을 완료한 후 웨비나에 입장할 수 있습니다.
+                <strong>{email}</strong>로 전송된 인증 이메일을 확인해주세요.<br />
+                이메일 인증을 완료한 후 웨비나에 입장할 수 있습니다.
                   </>
                 )}
               </p>

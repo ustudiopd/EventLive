@@ -26,3 +26,19 @@ body {
     rgb(var(--background-start-rgb));
 }
 
+@keyframes loading-dots {
+  0%, 20% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-loading-dot {
+  animation: loading-dots 1.4s ease-in-out infinite;
+}
+
