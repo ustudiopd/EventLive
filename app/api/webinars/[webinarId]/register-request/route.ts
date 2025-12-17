@@ -32,10 +32,10 @@ export async function POST(
     
     const admin = createAdminSupabase()
     
-    // 웨비나 정보 확인
+    // 웨비나 정보 확인 (slug 포함)
     const { data: webinar, error: webinarError } = await admin
       .from('webinars')
-      .select('id, title, access_policy, start_time')
+      .select('id, title, access_policy, start_time, slug')
       .eq('id', webinarId)
       .single()
     
@@ -87,13 +87,16 @@ export async function POST(
       )
     }
     
+    // slug가 있으면 slug를 사용하고, 없으면 id를 사용
+    const webinarSlug = webinar.slug || webinarId
+    
     // 이메일 발송 (실패해도 등록은 성공으로 처리)
     try {
       await sendWebinarRegistrationEmail(
         email.trim(),
         displayName.trim(),
         webinar.title || '웨비나',
-        webinarId,
+        webinarSlug,
         webinar.start_time
       )
     } catch (emailError) {

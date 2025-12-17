@@ -199,28 +199,35 @@ export default function WebinarsPage() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             <div className="flex items-center gap-3 flex-wrap">
-                              <Link 
-                                href={`/webinar/${webinar.id}`}
-                                className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
-                              >
-                                웨비나링크
-                              </Link>
-                              <ShareLinkButton 
-                                webinarId={webinar.id} 
-                                webinarTitle={webinar.title}
-                              />
-                              <Link 
-                                href={`/webinar/${webinar.id}/live?admin=true`}
-                                className="text-green-600 hover:text-green-800 font-medium hover:underline"
-                              >
-                                관리자 접속
-                              </Link>
-                              <Link 
-                                href={`/webinar/${webinar.id}/console`}
-                                className="text-purple-600 hover:text-purple-800 font-medium hover:underline"
-                              >
-                                콘솔
-                              </Link>
+                              {(() => {
+                                const webinarSlug = webinar.slug || webinar.id
+                                return (
+                                  <>
+                                    <Link 
+                                      href={`/webinar/${webinarSlug}`}
+                                      className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
+                                    >
+                                      웨비나링크
+                                    </Link>
+                                    <ShareLinkButton 
+                                      webinarId={webinar.id} 
+                                      webinarTitle={webinar.title}
+                                    />
+                                    <Link 
+                                      href={`/webinar/${webinarSlug}/live?admin=true`}
+                                      className="text-green-600 hover:text-green-800 font-medium hover:underline"
+                                    >
+                                      관리자 접속
+                                    </Link>
+                                    <Link 
+                                      href={`/webinar/${webinarSlug}/console`}
+                                      className="text-purple-600 hover:text-purple-800 font-medium hover:underline"
+                                    >
+                                      콘솔
+                                    </Link>
+                                  </>
+                                )
+                              })()}
                               <button
                                 onClick={() => setEditingWebinar(webinar)}
                                 className="text-purple-600 hover:text-purple-800 font-medium hover:underline"

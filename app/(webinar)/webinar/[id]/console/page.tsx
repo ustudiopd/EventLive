@@ -2,6 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server'
 import { createAdminSupabase } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth/guards'
+import { getWebinarQuery } from '@/lib/utils/webinar'
 import ConsoleView from './components/ConsoleView'
 
 export default async function ConsolePage({
@@ -13,8 +14,11 @@ export default async function ConsolePage({
   const admin = createAdminSupabase()
   const { user, supabase } = await requireAuth()
   
+  // UUID 또는 slug로 웨비나 조회
+  const query = getWebinarQuery(id)
+  
   // 웨비나 정보 조회 (RLS 우회)
-  const { data: webinar, error } = await admin
+  let queryBuilder = admin
     .from('webinars')
     .select(`
       *,
@@ -25,13 +29,18 @@ export default async function ConsolePage({
         brand_config
       )
     `)
-    .eq('id', id)
+  
+  const { data: webinar, error } = await queryBuilder
+    .eq(query.column, query.value)
     .single()
   
   if (error || !webinar) {
     // 웨비나를 찾을 수 없으면 입장 페이지로 리다이렉트
     redirect(`/webinar/${id}`)
   }
+  
+  // slug가 있으면 slug를 사용하고, 없으면 id를 사용 (리다이렉트용)
+  const webinarId = webinar.slug || webinar.id
   
   // 권한 확인 (클라이언트 멤버 또는 에이전시 owner/admin)
   // JWT app_metadata에서 슈퍼어드민 권한 확인 (RLS 재귀 방지)
@@ -88,7 +97,7 @@ export default async function ConsolePage({
       webinarId: id,
       webinarClientId: webinar.client_id,
     })
-    redirect(`/webinar/${id}`)
+    redirect(`/webinar/${webinarId}`)
   }
   
   return <ConsoleView webinar={webinar} userRole={userRole} />

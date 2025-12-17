@@ -10,6 +10,7 @@ import GiveawayManagement from './GiveawayManagement'
 
 interface Webinar {
   id: string
+  slug?: string | null
   title: string
   description?: string
   youtube_url: string
@@ -31,6 +32,8 @@ interface ConsoleViewProps {
  */
 export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
   const [activeTab, setActiveTab] = useState<'qa' | 'chat' | 'forms' | 'files' | 'giveaways'>('qa')
+  // slug가 있으면 slug를 사용하고, 없으면 id를 사용 (URL용)
+  const webinarSlug = webinar.slug || webinar.id
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
@@ -41,7 +44,7 @@ export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
             <div>
               <div className="flex items-center gap-3">
                 <Link 
-                  href={`/webinar/${webinar.id}`}
+                  href={`/webinar/${webinarSlug}`}
                   className="text-blue-600 hover:text-blue-700 hover:underline"
                 >
                   ← 시청 페이지로
@@ -52,7 +55,7 @@ export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
             </div>
             <div className="flex items-center gap-3">
               <Link
-                href={`/webinar/${webinar.id}/live?admin=true`}
+                href={`/webinar/${webinarSlug}/live?admin=true`}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap"
               >
                 관리자 접속

@@ -6,12 +6,16 @@ import ShareLinkButton from '@/components/webinar/ShareLinkButton'
 interface WebinarListItemProps {
   webinar: {
     id: string
+    slug?: string | null
     title: string
     start_time: string | null
   }
 }
 
 export default function WebinarListItem({ webinar }: WebinarListItemProps) {
+  // slug가 있으면 slug를 사용하고, 없으면 id를 사용 (URL용)
+  const webinarSlug = webinar.slug || webinar.id
+  
   return (
     <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
       <div>
@@ -27,19 +31,19 @@ export default function WebinarListItem({ webinar }: WebinarListItemProps) {
           className="flex-shrink-0"
         />
         <Link 
-          href={`/webinar/${webinar.id}`}
+          href={`/webinar/${webinarSlug}`}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium whitespace-nowrap"
         >
           웨비나링크
         </Link>
         <Link 
-          href={`/webinar/${webinar.id}/console`}
+          href={`/webinar/${webinarSlug}/console`}
           className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium whitespace-nowrap"
         >
           콘솔
         </Link>
         <Link 
-          href={`/webinar/${webinar.id}/live?admin=true`}
+          href={`/webinar/${webinarSlug}/live?admin=true`}
           className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap"
         >
           관리자 접속

@@ -1,6 +1,7 @@
 import { createAdminSupabase } from '@/lib/supabase/admin'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { getWebinarQuery } from '@/lib/utils/webinar'
 import WebinarView from '../components/WebinarView'
 
 export default async function WebinarLivePage({
@@ -17,8 +18,11 @@ export default async function WebinarLivePage({
   const admin = createAdminSupabase()
   const supabase = await createServerSupabase()
   
+  // UUID 또는 slug로 웨비나 조회
+  const query = getWebinarQuery(id)
+  
   // 웨비나 정보 조회 (RLS 우회하여 접근 가능하도록)
-  const { data: webinar, error } = await admin
+  let queryBuilder = admin
     .from('webinars')
     .select(`
       *,
@@ -29,7 +33,9 @@ export default async function WebinarLivePage({
         brand_config
       )
     `)
-    .eq('id', id)
+  
+  const { data: webinar, error } = await queryBuilder
+    .eq(query.column, query.value)
     .single()
   
   if (error || !webinar) {
@@ -37,13 +43,16 @@ export default async function WebinarLivePage({
     redirect(`/webinar/${id}`)
   }
   
+  // slug가 있으면 slug를 사용하고, 없으면 id를 사용 (리다이렉트용)
+  const webinarId = webinar.slug || webinar.id
+  
   // 사용자 정보 조회
   const { data: { user } } = await supabase.auth.getUser()
   
   // 이메일 파라미터가 있고 로그인되지 않은 경우, 입장 페이지로 리다이렉트하여 자동 로그인 처리
   const emailParam = searchParamsData?.email as string | undefined
   if (emailParam && !user && webinar.access_policy === 'email_auth') {
-    redirect(`/webinar/${id}?email=${encodeURIComponent(emailParam)}`)
+    redirect(`/webinar/${webinarId}?email=${encodeURIComponent(emailParam)}`)
   }
   
   // 특정 이메일로 접속 시 자동 관리자 모드 활성화
@@ -98,13 +107,13 @@ export default async function WebinarLivePage({
       const { data: registration } = await admin
         .from('registrations')
         .select('webinar_id, user_id')
-        .eq('webinar_id', id)
+        .eq('webinar_id', webinar.id)
         .eq('user_id', user.id)
         .maybeSingle()
       
       // 등록되어 있지 않으면 입장 페이지로 리다이렉트 (웨비나별 독립 등록 필수)
       if (!registration) {
-        redirect(`/webinar/${id}`)
+        redirect(`/webinar/${webinarId}`)
       }
     }
   }
@@ -113,18 +122,18 @@ export default async function WebinarLivePage({
   if (isAdminMode) {
     if (!user) {
       // 관리자 모드는 로그인 필요
-      redirect(`/webinar/${id}`)
+      redirect(`/webinar/${webinarId}`)
     }
     
     // 특정 이메일은 권한 확인 건너뛰기
     if (!isAutoAdminEmail && !hasAdminPermission) {
       // 권한이 없으면 일반 입장 페이지로 리다이렉트
-      redirect(`/webinar/${id}`)
+      redirect(`/webinar/${webinarId}`)
     }
   } else {
     // 일반 모드: 접근 정책 확인
     if (webinar.access_policy === 'auth' && !user) {
-      redirect(`/webinar/${id}`)
+      redirect(`/webinar/${webinarId}`)
     }
     
     // email_auth 정책: 등록된 이메일인지 확인
@@ -132,13 +141,13 @@ export default async function WebinarLivePage({
       const { data: allowedEmail } = await admin
         .from('webinar_allowed_emails')
         .select('email')
-        .eq('webinar_id', id)
+        .eq('webinar_id', webinar.id)
         .ilike('email', user.email?.toLowerCase() || '')
         .maybeSingle()
       
       if (!allowedEmail) {
         // 등록되지 않은 이메일이면 입장 페이지로 리다이렉트
-        redirect(`/webinar/${id}`)
+        redirect(`/webinar/${webinarId}`)
       }
     }
   }

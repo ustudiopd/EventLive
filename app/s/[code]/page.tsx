@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 
 interface PageProps {
   params: Promise<{ code: string }>
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -23,10 +24,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     }
   }
 
-  // 웨비나 정보 조회
+  // 웨비나 정보 조회 (slug 포함)
   const { data: webinar } = await admin
     .from('webinars')
-    .select('id, title, description')
+    .select('id, slug, title, description')
     .eq('id', shortLink.webinar_id)
     .single()
 
@@ -57,8 +58,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
 }
 
-export default async function ShortLinkRedirectPage({ params }: PageProps) {
+export default async function ShortLinkRedirectPage({ 
+  params,
+  searchParams 
+}: PageProps) {
   const { code } = await params
+  const searchParamsData = await searchParams
   const admin = createAdminSupabase()
 
   // 짧은 링크로 웨비나 ID 조회
@@ -80,7 +85,38 @@ export default async function ShortLinkRedirectPage({ params }: PageProps) {
     }
   }
 
-  // 원본 웨비나 페이지로 리다이렉트
-  redirect(`/webinar/${shortLink.webinar_id}`)
+  // 웨비나 정보 조회 (slug 포함)
+  const { data: webinar } = await admin
+    .from('webinars')
+    .select('id, slug')
+    .eq('id', shortLink.webinar_id)
+    .single()
+
+  if (!webinar) {
+    redirect('/')
+  }
+
+  // slug가 있으면 slug를 사용하고, 없으면 id를 사용
+  const webinarSlug = webinar.slug || webinar.id
+
+  // URL 파라미터 유지 (이메일 등)
+  const queryParams = new URLSearchParams()
+  if (searchParamsData?.email) {
+    queryParams.set('email', searchParamsData.email as string)
+  }
+  // 다른 파라미터도 유지
+  Object.keys(searchParamsData).forEach(key => {
+    if (key !== 'email' && searchParamsData[key]) {
+      queryParams.set(key, searchParamsData[key] as string)
+    }
+  })
+
+  const queryString = queryParams.toString()
+  const redirectUrl = queryString 
+    ? `/webinar/${webinarSlug}?${queryString}`
+    : `/webinar/${webinarSlug}`
+
+  // slug로 리다이렉트 (파라미터 포함)
+  redirect(redirectUrl)
 }
 

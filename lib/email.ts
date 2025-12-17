@@ -28,12 +28,13 @@ function createTransporter() {
 
 /**
  * 웨비나 등록 확인 이메일 발송
+ * @param webinarIdOrSlug - 웨비나 ID (UUID) 또는 slug
  */
 export async function sendWebinarRegistrationEmail(
   to: string,
   displayName: string,
   webinarTitle: string,
-  webinarId: string,
+  webinarIdOrSlug: string,
   startTime?: string | null
 ): Promise<boolean> {
   try {
@@ -45,8 +46,8 @@ export async function sendWebinarRegistrationEmail(
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    // 이메일 파라미터를 포함한 입장 링크 (자동 로그인용)
-    const entryUrl = `${baseUrl}/webinar/${webinarId}/live?email=${encodeURIComponent(to)}`
+    // 이메일 파라미터를 포함한 입장 링크 (자동 로그인용, slug 사용)
+    const entryUrl = `${baseUrl}/webinar/${webinarIdOrSlug}/live?email=${encodeURIComponent(to)}`
     // 행사 썸네일 이미지 URL
     const thumbnailUrl = `${supabaseUrl}/storage/v1/object/public/webinar-thumbnails/edm.png`
     

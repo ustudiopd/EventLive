@@ -479,6 +479,31 @@
   - `proxy.ts`로 마이그레이션 필요 (향후 Next.js 17+ 호환성)
   - 현재는 경고만 표시되며 기능은 정상 동작
 
+## [2025-01-XX] 웨비나 슬러그 지원 구현
+- ✅ 데이터베이스 마이그레이션 (`032_add_slug_to_webinars.sql`)
+  - `webinars` 테이블에 `slug` 필드 추가 (unique, nullable)
+  - slug 자동 생성 함수 (`generate_slug_from_title`) 구현
+  - 기존 웨비나에 slug 자동 생성 (제목 기반)
+  - slug 인덱스 추가 (조회 성능 향상)
+- ✅ UUID와 slug 모두 지원하는 라우팅 로직
+  - `lib/utils/webinar.ts`에 UUID 판별 유틸리티 함수 추가
+  - `/webinar/[id]` 경로에서 UUID/slug 자동 판별
+  - 모든 웨비나 관련 페이지에서 slug 지원 (입장, 라이브, 콘솔)
+- ✅ 웨비나 생성 API 개선
+  - 웨비나 생성 시 slug 자동 생성
+  - 중복 체크 및 충돌 처리 로직 추가
+- ✅ 이메일 템플릿 개선
+  - 등록 확인 이메일에서 slug 주소 사용
+  - 예: `https://must.ai.kr/webinar/인간지능x인공지능-토크쇼-2025년-ai-결산/live?email=...`
+- ✅ 짧은 링크 개선 (`/s/[code]`)
+  - 짧은 링크를 통해 접속 시 slug로 리다이렉트
+  - URL 파라미터(이메일 등) 유지하면서 리다이렉트
+  - 예: `https://must.ai.kr/s/903514?email=ad@ustudio.co.kr` → slug 주소로 리다이렉트
+- ✅ 주요 개선사항
+  - 웨비나 접속 주소를 UUID 대신 읽기 쉬운 slug로 사용 가능
+  - 기존 UUID 주소도 계속 지원 (하위 호환성 유지)
+  - 이메일 회신 및 짧은 링크에서도 slug 주소 사용
+
 ## [2025-01-XX] 웨비나 등록 시스템 개선 및 이메일 인증 정책 구현
 - ✅ 웨비나 등록 용어 변경
   - "회원가입" → "웨비나 등록"으로 UI 텍스트 변경

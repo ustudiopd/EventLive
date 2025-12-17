@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createAdminSupabase } from '@/lib/supabase/admin'
+import { getWebinarQuery } from '@/lib/utils/webinar'
 import WebinarEntry from './components/WebinarEntry'
 
 export default async function WebinarPage({
@@ -10,12 +11,16 @@ export default async function WebinarPage({
   const { id } = await params
   const admin = createAdminSupabase()
   
+  // UUID 또는 slug로 웨비나 조회
+  const query = getWebinarQuery(id)
+  
         // 웨비나 정보 조회 (RLS 우회하여 누구나 접근 가능하도록)
         // 입장 페이지는 public이므로 기본 정보만 조회
-        const { data: webinar, error } = await admin
+        let queryBuilder = admin
           .from('webinars')
           .select(`
             id,
+            slug,
             title,
             description,
             youtube_url,
@@ -29,7 +34,9 @@ export default async function WebinarPage({
               brand_config
             )
           `)
-          .eq('id', id)
+        
+        const { data: webinar, error } = await queryBuilder
+          .eq(query.column, query.value)
           .single()
         
         if (error || !webinar) {

@@ -98,6 +98,47 @@ export async function POST(req: Request) {
       )
     }
     
+    // slug 자동 생성 (데이터베이스 함수 사용)
+    const { data: slugResult, error: slugError } = await admin
+      .rpc('generate_slug_from_title', { title })
+    
+    let slug = slugResult as string | null
+    if (slugError || !slug) {
+      console.warn('slug 생성 실패, 수동 생성 시도:', slugError)
+      // 수동으로 slug 생성 (간단한 버전)
+      slug = title
+        .toLowerCase()
+        .replace(/[^가-힣a-z0-9\s]/g, '')
+        .replace(/\s+/g, '-')
+        .substring(0, 100)
+        .replace(/^-+|-+$/g, '')
+      
+      if (!slug) {
+        slug = 'webinar-' + Date.now().toString(36)
+      }
+      
+      // 중복 체크 및 숫자 추가
+      let finalSlug = slug
+      let counter = 0
+      while (true) {
+        const { data: existing } = await admin
+          .from('webinars')
+          .select('id')
+          .eq('slug', finalSlug)
+          .maybeSingle()
+        
+        if (!existing) break
+        
+        counter++
+        finalSlug = slug + '-' + counter
+        if (counter > 1000) {
+          finalSlug = slug + '-' + Date.now().toString(36)
+          break
+        }
+      }
+      slug = finalSlug
+    }
+    
     // 웨비나 생성
     const { data: webinar, error: webinarError } = await admin
       .from('webinars')
@@ -112,6 +153,7 @@ export async function POST(req: Request) {
         max_participants: maxParticipants || null,
         is_public: isPublic ?? false,
         access_policy: accessPolicy || 'auth',
+        slug,
         created_by: user.id,
       })
       .select()
@@ -125,7 +167,7 @@ export async function POST(req: Request) {
       )
     }
     
-    console.log('웨비나 생성 성공:', webinar.id)
+    console.log('웨비나 생성 성공:', webinar.id, 'slug:', webinar.slug)
     
     // email_auth 정책인 경우 허용된 이메일 목록 저장
     if (accessPolicy === 'email_auth' && allowedEmails && Array.isArray(allowedEmails)) {
