@@ -479,6 +479,24 @@
   - `proxy.ts`로 마이그레이션 필요 (향후 Next.js 17+ 호환성)
   - 현재는 경고만 표시되며 기능은 정상 동작
 
+## [2025-01-XX] 짧은 링크 리다이렉트 문제 해결
+- ✅ 상세 로깅 추가 (`app/s/[code]/page.tsx`)
+  - 각 단계별 상세 로그 추가 ([ShortLink] 태그)
+  - 짧은 링크 조회 시작/성공/실패 로깅
+  - 웨비나 조회 시작/성공/실패 로깅
+  - 최종 slug 결정 및 리다이렉트 URL 생성 로깅
+  - 예외 발생 시 상세 정보 로깅 (error, message, stack)
+  - 디버깅을 위한 단계별 추적 가능
+- ✅ 한글 slug 문제로 인한 임시 UUID 리다이렉트 적용
+  - 한글 slug 리다이렉트 문제 해결 전까지 UUID 사용
+  - 원래 UUID 링크: `/webinar/7d4ad9e9-2f69-49db-87a9-8d25cb82edee`
+  - 예: `https://must.ai.kr/s/903514?email=ad@ustudio.co.kr` → UUID 링크로 리다이렉트
+  - 한글 slug 문제 해결 후 다시 slug로 변경 예정
+- ⚠️ 알려진 이슈
+  - 한글 slug를 포함한 URL 리다이렉트 시 문제 발생 가능
+  - Next.js `redirect()` 함수가 한글 slug를 제대로 처리하지 못할 수 있음
+  - 임시 해결책: UUID로 리다이렉트하여 정상 작동 확인
+
 ## [2025-01-XX] 웨비나 슬러그 지원 구현
 - ✅ 데이터베이스 마이그레이션 (`032_add_slug_to_webinars.sql`)
   - `webinars` 테이블에 `slug` 필드 추가 (unique, nullable)
@@ -496,9 +514,10 @@
   - 등록 확인 이메일에서 slug 주소 사용
   - 예: `https://must.ai.kr/webinar/인간지능x인공지능-토크쇼-2025년-ai-결산/live?email=...`
 - ✅ 짧은 링크 개선 (`/s/[code]`)
-  - 짧은 링크를 통해 접속 시 slug로 리다이렉트
+  - 짧은 링크를 통해 접속 시 UUID로 리다이렉트 (임시, 한글 slug 문제 해결 전까지)
   - URL 파라미터(이메일 등) 유지하면서 리다이렉트
-  - 예: `https://must.ai.kr/s/903514?email=ad@ustudio.co.kr` → slug 주소로 리다이렉트
+  - 예: `https://must.ai.kr/s/903514?email=ad@ustudio.co.kr` → UUID 주소로 리다이렉트
+  - 한글 slug 문제 해결 후 다시 slug로 변경 예정
 - ✅ 주요 개선사항
   - 웨비나 접속 주소를 UUID 대신 읽기 쉬운 slug로 사용 가능
   - 기존 UUID 주소도 계속 지원 (하위 호환성 유지)
