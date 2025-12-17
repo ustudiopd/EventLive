@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface YouTubePlayerProps {
   /** YouTube URL (full URL or video ID) */
@@ -40,10 +40,10 @@ export default function YouTubePlayer({
   useEffect(() => {
     if (!containerRef.current) return
     
-    // YouTube URL에서 video ID 추출
+    // YouTube URL에서 video ID 추출 (라이브 스트림 URL도 지원)
     const getVideoId = (url: string): string | null => {
       const patterns = [
-        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/live\/)([^&\n?#]+)/,
         /^([a-zA-Z0-9_-]{11})$/,
       ]
       
@@ -68,9 +68,18 @@ export default function YouTubePlayer({
     }
     
     // YouTube 임베드 URL 생성
-    const embedUrl = `https://www.youtube.com/embed/${videoId}?${
-      autoplay ? 'autoplay=1&' : ''
-    }${muted ? 'mute=1&' : ''}rel=0&modestbranding=1`
+    // 라이브 스트림이 시작되지 않았을 때도 썸네일과 대기 화면이 표시되도록 설정
+    const params = new URLSearchParams()
+    if (autoplay) params.append('autoplay', '1')
+    if (muted) params.append('mute', '1')
+    // rel=0은 관련 동영상 숨김, 라이브 스트림 대기 화면 표시를 위해 제거
+    params.append('modestbranding', '1')
+    params.append('enablejsapi', '1')
+    params.append('origin', window.location.origin)
+    // 라이브 스트림 대기 화면 표시를 위한 파라미터
+    params.append('playsinline', '1')
+    
+    const embedUrl = `https://www.youtube.com/embed/${videoId}?${params.toString()}`
     
     // iframe 생성
     const iframe = document.createElement('iframe')
