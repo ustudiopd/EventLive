@@ -44,6 +44,16 @@ export async function POST(req: Request) {
     
     // 등록된 이메일인지 확인 (소문자로 비교)
     const emailLower = email.trim().toLowerCase()
+    
+    // 관리자 계정은 이메일 인증으로 접속 불가
+    const adminEmails = ['pd@ustudio.co.kr']
+    if (adminEmails.includes(emailLower)) {
+      return NextResponse.json(
+        { error: '관리자 계정은 이메일 인증으로 접속할 수 없습니다. 일반 로그인을 사용해주세요.' },
+        { status: 403 }
+      )
+    }
+    
     const { data: allowedEmail, error: emailCheckError } = await admin
       .from('webinar_allowed_emails')
       .select('email')

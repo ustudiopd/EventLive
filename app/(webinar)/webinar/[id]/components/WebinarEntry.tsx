@@ -50,6 +50,15 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
     // 이메일 파라미터가 있고 email_auth 정책인 경우 자동 로그인 처리
     if (emailParam && webinar.access_policy === 'email_auth') {
       const emailLower = emailParam.toLowerCase().trim()
+      
+      // 관리자 계정은 이메일 인증으로 접속 불가
+      const adminEmails = ['pd@ustudio.co.kr']
+      if (adminEmails.includes(emailLower)) {
+        setError('관리자 계정은 이메일 인증으로 접속할 수 없습니다. 일반 로그인을 사용해주세요.')
+        setMode('login')
+        return
+      }
+      
       setEmail(emailLower)
       setMode('email_auth')
       
@@ -344,6 +353,15 @@ export default function WebinarEntry({ webinar }: WebinarEntryProps) {
     
     if (!email || !email.trim()) {
       setError('이메일을 입력해주세요')
+      return
+    }
+    
+    // 관리자 계정은 이메일 인증으로 접속 불가
+    const emailLower = email.trim().toLowerCase()
+    const adminEmails = ['pd@ustudio.co.kr']
+    if (adminEmails.includes(emailLower)) {
+      setError('관리자 계정은 이메일 인증으로 접속할 수 없습니다. 일반 로그인을 사용해주세요.')
+      setMode('login')
       return
     }
     
