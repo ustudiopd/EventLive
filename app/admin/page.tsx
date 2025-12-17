@@ -40,20 +40,30 @@ export default function AdminPage() {
         
         try {
           const response = await fetch('/api/auth/dashboard')
-          const { dashboard } = await response.json()
+          const result = await response.json()
           
-          if (dashboard) {
-            router.push(dashboard)
+          if (result.dashboard) {
+            router.push(result.dashboard)
             router.refresh()
             return
           }
+          
+          // 대시보드가 없으면 에러 메시지 표시
+          if (result.error) {
+            setError(result.error)
+          } else {
+            setError('접근 권한이 없습니다. 관리자에게 문의하세요.')
+          }
         } catch (err) {
           console.error('대시보드 리다이렉트 오류:', err)
+          setError('대시보드 접근 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
         }
+      } else {
+        setError('로그인에 실패했습니다.')
       }
       
-      router.push('/')
-      router.refresh()
+      setLoading(false)
+      return
     } catch (err: any) {
       setError(err.message || '로그인 중 오류가 발생했습니다')
     } finally {
@@ -189,7 +199,14 @@ export default function AdminPage() {
               
               {error && (
                 <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-lg">
-                  {error}
+                  <div className="font-semibold mb-1">오류</div>
+                  <div>{error}</div>
+                  {error.includes('권한') && (
+                    <div className="mt-2 text-sm text-red-600">
+                      💡 관리자 권한이 설정되지 않았거나 JWT 토큰이 만료되었을 수 있습니다. 
+                      관리자에게 문의하거나 재로그인을 시도해주세요.
+                    </div>
+                  )}
                 </div>
               )}
               

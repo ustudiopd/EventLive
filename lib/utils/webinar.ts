@@ -15,7 +15,14 @@ export function getWebinarQuery(idOrSlug: string) {
   if (isUUID(idOrSlug)) {
     return { column: 'id', value: idOrSlug }
   } else {
-    return { column: 'slug', value: idOrSlug }
+    // URL 인코딩된 slug를 디코딩
+    try {
+      const decoded = decodeURIComponent(idOrSlug)
+      return { column: 'slug', value: decoded }
+    } catch {
+      // 디코딩 실패 시 원본 사용
+      return { column: 'slug', value: idOrSlug }
+    }
   }
 }
 

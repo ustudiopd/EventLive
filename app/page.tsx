@@ -36,26 +36,35 @@ export default function Home() {
         
         setUser(currentUser)
         
+        // 슈퍼어드민 여부 확인 (JWT app_metadata 사용 - RLS 재귀 방지)
+        // 클라이언트에서는 직접 DB 조회하지 않고 JWT에서 확인
+        if (currentUser?.app_metadata?.is_super_admin) {
+          setIsSuperAdmin(true)
+        }
+        
+        // 웨비나 관련 경로로 접근한 경우 자동 리다이렉트하지 않음
+        // (콘솔에서 관리자 접속 시 리다이렉트 방지)
+        const currentPath = window.location.pathname
+        if (currentPath.startsWith('/webinar/')) {
+          setChecking(false)
+          return
+        }
+        
         // API를 통해 대시보드 경로 가져오기 (서버 사이드에서 RLS 정책 적용)
         const response = await fetch('/api/auth/dashboard')
         const result = await response.json()
         const { dashboard } = result
         
         if (dashboard) {
-          // 슈퍼어드민인 경우 즉시 리다이렉트
+          // 슈퍼어드민인 경우 버튼만 표시 (자동 리다이렉트 제거)
           if (dashboard === '/super/dashboard') {
             setIsSuperAdmin(true)
-            router.push(dashboard)
+            setChecking(false)
             return
           }
+          // 에이전시/클라이언트 대시보드는 자동 리다이렉트 유지
           router.push(dashboard)
           return
-        }
-        
-        // 슈퍼어드민 여부 확인 (JWT app_metadata 사용 - RLS 재귀 방지)
-        // 클라이언트에서는 직접 DB 조회하지 않고 JWT에서 확인
-        if (currentUser?.app_metadata?.is_super_admin) {
-          setIsSuperAdmin(true)
         }
         
         setChecking(false)

@@ -55,7 +55,7 @@ export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
             </div>
             <div className="flex items-center gap-3">
               <Link
-                href={`/webinar/${webinarSlug}/live?admin=true`}
+                href={`/webinar/${webinarSlug}/live?admin=true&from=console`}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap"
               >
                 관리자 접속

@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       )
     }
     
-    // 권한 업데이트
+    // 권한 업데이트 (profiles 테이블)
     const { error: updateError } = await admin
       .from('profiles')
       .update({ is_super_admin: isSuperAdmin })
@@ -62,6 +62,17 @@ export async function POST(req: Request) {
         { error: updateError.message },
         { status: 500 }
       )
+    }
+    
+    // JWT app_metadata도 업데이트 (재로그인 없이 권한 반영)
+    const { error: authUpdateError } = await admin.auth.admin.updateUserById(userId, {
+      app_metadata: { is_super_admin: isSuperAdmin }
+    })
+    
+    if (authUpdateError) {
+      console.error('JWT app_metadata 업데이트 실패:', authUpdateError)
+      // profiles 업데이트는 성공했으므로 경고만 하고 계속 진행
+      // 사용자는 재로그인하면 JWT가 갱신됨
     }
     
     // 감사 로그

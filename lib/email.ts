@@ -77,8 +77,8 @@ export async function sendWebinarRegistrationEmail(
     // 행사 썸네일 이미지 URL
     const thumbnailUrl = `${supabaseUrl}/storage/v1/object/public/webinar-thumbnails/edm.png`
     
-    // 날짜 고정 텍스트
-    const formattedDateTime = '2025.12.17일'
+    // 날짜/시간 고정 텍스트
+    const formattedDateTime = '2025.12.17일 7시'
 
     const mailOptions = {
       from: `"모두의특강" <${process.env.SMTP_USER || 'admin@modoolecture.com'}>`,

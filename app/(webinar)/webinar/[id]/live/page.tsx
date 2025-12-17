@@ -15,6 +15,13 @@ export default async function WebinarLivePage({
   const searchParamsData = await searchParams
   let isAdminMode = searchParamsData?.admin === 'true'
   
+  // 콘솔에서 온 경우 (콘솔 페이지는 이미 권한 체크를 했으므로 예외 처리)
+  const fromConsole = searchParamsData?.from === 'console'
+  // 콘솔에서 온 경우 관리자 모드 강제 활성화
+  if (fromConsole) {
+    isAdminMode = true
+  }
+  
   const admin = createAdminSupabase()
   const supabase = await createServerSupabase()
   
@@ -48,6 +55,16 @@ export default async function WebinarLivePage({
   
   // 사용자 정보 조회
   const { data: { user } } = await supabase.auth.getUser()
+  
+  // 콘솔에서 온 경우 로그인 체크만 하고 나머지 권한 체크는 모두 건너뛰기
+  if (fromConsole) {
+    if (!user) {
+      // 관리자 모드는 로그인 필요
+      redirect(`/webinar/${webinarId}`)
+    }
+    // 콘솔에서 온 경우는 모든 권한 체크를 건너뛰고 바로 관리자 모드로 접근 허용
+    return <WebinarView webinar={webinar} isAdminMode={true} />
+  }
   
   // 이메일 파라미터가 있고 로그인되지 않은 경우, 입장 페이지로 리다이렉트하여 자동 로그인 처리
   const emailParam = searchParamsData?.email as string | undefined
@@ -97,8 +114,9 @@ export default async function WebinarLivePage({
       }
     }
     
-    // URL 파라미터로 명시적으로 admin=false가 아닌 경우, 관리자 권한이 있으면 자동 관리자 모드 활성화
-    if (hasAdminPermission && searchParamsData?.admin !== 'false') {
+    // URL 파라미터로 명시적으로 admin=true인 경우 관리자 모드 강제 활성화
+    // 또는 관리자 권한이 있고 admin=false가 아닌 경우 자동 관리자 모드 활성화
+    if (searchParamsData?.admin === 'true' || (hasAdminPermission && searchParamsData?.admin !== 'false')) {
             isAdminMode = true
           }
     
@@ -125,8 +143,13 @@ export default async function WebinarLivePage({
       redirect(`/webinar/${webinarId}`)
     }
     
+    // admin=true 파라미터가 명시적으로 있는 경우 권한 체크 완화
+    // (대시보드나 콘솔에서 접근한 경우 이미 권한 체크를 완료했으므로)
+    const explicitAdmin = searchParamsData?.admin === 'true'
+    
     // 특정 이메일은 권한 확인 건너뛰기
-    if (!isAutoAdminEmail && !hasAdminPermission) {
+    // admin=true가 명시적으로 있으면 권한 확인 완화 (대시보드/콘솔에서 온 경우)
+    if (!isAutoAdminEmail && !explicitAdmin && !hasAdminPermission) {
         // 권한이 없으면 일반 입장 페이지로 리다이렉트
       redirect(`/webinar/${webinarId}`)
     }
