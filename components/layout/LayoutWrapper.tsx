@@ -17,6 +17,9 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   // 테스트 페이지는 사이드바 없음
   const isTestPage = pathname.startsWith('/test')
   
+  // 설문조사 공개 페이지는 사이드바 없음
+  const isSurveyPublicPage = pathname.startsWith('/event/')
+  
   // 관리 웨비나 페이지 (콘솔, 등록자, 통계)는 사이드바 표시
   // 정규식: /webinar/[id 또는 slug]/console, /webinar/[id 또는 slug]/registrants, /webinar/[id 또는 slug]/stats 패턴 매칭
   // URL 인코딩된 경로도 처리 (decodeURIComponent 사용)
@@ -51,9 +54,9 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
     })
   }
   
-  // 사이드바를 숨겨야 하는 페이지: 공개 페이지, 공개 웨비나 페이지, /admin 페이지, 테스트 페이지
+  // 사이드바를 숨겨야 하는 페이지: 공개 페이지, 공개 웨비나 페이지, /admin 페이지, 테스트 페이지, 설문조사 공개 페이지
   // 관리 웨비나 페이지(콘솔, 등록자, 통계)는 사이드바 표시
-  if (isPublicPage || isPublicWebinarPage || isAdminPage || isTestPage) {
+  if (isPublicPage || isPublicWebinarPage || isAdminPage || isTestPage || isSurveyPublicPage) {
     return <>{children}</>
   }
   

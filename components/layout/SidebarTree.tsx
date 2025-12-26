@@ -36,7 +36,7 @@ export default function SidebarTree({ organizations }: SidebarTreeProps) {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
   const [agencies, setAgencies] = useState<Array<{ id: string; name: string }>>([])
   const [clients, setClients] = useState<Array<{ id: string; name: string; agencyId: string }>>([])
-  const [webinars, setWebinars] = useState<Map<string, Array<{ id: string; title: string; slug?: string }>>>(new Map())
+  const [webinars, setWebinars] = useState<Map<string, Array<{ id: string; title: string; slug?: string; type?: 'webinar' | 'survey' }>>>(new Map())
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -56,8 +56,8 @@ export default function SidebarTree({ organizations }: SidebarTreeProps) {
         .catch(err => console.error('슈퍼 관리자 데이터 조회 실패:', err))
     } else if (organizations) {
       // 일반 사용자는 organizations에서 가져옴
-      setAgencies(organizations.agencies.map(a => ({ id: a.id, name: a.name })))
-      setClients(organizations.clients.map(c => ({ id: c.id, name: c.name, agencyId: c.agencyId })))
+      setAgencies((organizations.agencies || []).map((a: any) => ({ id: a.id, name: a.name })))
+      setClients((organizations.clients || []).map((c: any) => ({ id: c.id, name: c.name, agencyId: c.agencyId })))
     }
   }, [organizations])
 
@@ -251,14 +251,6 @@ export default function SidebarTree({ organizations }: SidebarTreeProps) {
                 active: pathname === `/client/${client.id}/dashboard`
               },
               {
-                id: `client-${client.id}-webinars`,
-                label: '이벤트(웨비나)',
-                type: 'page',
-                href: `/client/${client.id}/webinars`,
-                icon: '🎥',
-                active: pathname.includes(`/client/${client.id}/webinars`)
-              },
-              {
                 id: `client-${client.id}-accounts`,
                 label: '가입계정관리',
                 type: 'page',
@@ -277,44 +269,56 @@ export default function SidebarTree({ organizations }: SidebarTreeProps) {
             ]
           }
 
-          // 해당 클라이언트의 웨비나 목록
-          const clientWebinars = webinars.get(client.id) || []
-          clientWebinars.forEach(webinar => {
-            const webinarNode: TreeNode = {
-              id: `webinar-${webinar.id}`,
-              label: webinar.title,
-              type: 'webinar',
-              icon: '🎥',
-              expanded: expandedNodes.has(`webinar-${webinar.id}`),
-              active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/`),
-              children: [
+          // 해당 클라이언트의 웨비나/설문조사 목록
+          const clientEvents = webinars.get(client.id) || []
+          clientEvents.forEach(event => {
+            const isSurvey = event.type === 'survey'
+            const eventNode: TreeNode = {
+              id: `${isSurvey ? 'survey' : 'webinar'}-${event.id}`,
+              label: event.title,
+              type: isSurvey ? 'webinar' : 'webinar', // TreeNode 타입은 webinar로 통일
+              icon: isSurvey ? '📋' : '🎥',
+              expanded: expandedNodes.has(`${isSurvey ? 'survey' : 'webinar'}-${event.id}`),
+              active: isSurvey 
+                ? pathname.includes(`/client/${client.id}/surveys/${event.id}`)
+                : pathname.includes(`/webinar/${event.slug || event.id}/`),
+              children: isSurvey ? [
                 {
-                  id: `webinar-${webinar.id}-console`,
+                  id: `survey-${event.id}-console`,
+                  label: '콘솔',
+                  type: 'page',
+                  href: `/client/${client.id}/surveys/${event.id}`,
+                  icon: '🎛️',
+                  active: pathname.includes(`/client/${client.id}/surveys/${event.id}`)
+                }
+              ] : [
+                {
+                  id: `webinar-${event.id}-console`,
                   label: '운영 콘솔',
                   type: 'page',
-                  href: `/webinar/${webinar.slug || webinar.id}/console`,
+                  href: `/webinar/${event.slug || event.id}/console`,
                   icon: '🎛️',
-                  active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/console`)
+                  active: pathname.includes(`/webinar/${event.slug || event.id}/console`)
                 },
                 {
-                  id: `webinar-${webinar.id}-registrants`,
+                  id: `webinar-${event.id}-registrants`,
                   label: '등록자',
                   type: 'page',
-                  href: `/webinar/${webinar.slug || webinar.id}/registrants`,
+                  href: `/webinar/${event.slug || event.id}/registrants`,
                   icon: '👥',
-                  active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/registrants`)
+                  active: pathname.includes(`/webinar/${event.slug || event.id}/registrants`)
                 },
                 {
-                  id: `webinar-${webinar.id}-stats`,
+                  id: `webinar-${event.id}-stats`,
                   label: '통계',
                   type: 'page',
-                  href: `/webinar/${webinar.slug || webinar.id}/stats`,
+                  href: `/webinar/${event.slug || event.id}/stats`,
                   icon: '📊',
-                  active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/stats`)
+                  active: pathname.includes(`/webinar/${event.slug || event.id}/stats`)
                 }
               ]
             }
-            clientNode.children!.push(webinarNode)
+            clientNode.children!.push(eventNode)
           })
 
           agencyNode.children!.push(clientNode)
@@ -353,44 +357,56 @@ export default function SidebarTree({ organizations }: SidebarTreeProps) {
               children: []
             }
 
-            // 웨비나 로드
-            const clientWebinars = webinars.get(client.id) || []
-            clientWebinars.forEach(webinar => {
-              const webinarNode: TreeNode = {
-                id: `webinar-${webinar.id}`,
-                label: webinar.title,
-                type: 'webinar',
-                icon: '🎥',
-                expanded: expandedNodes.has(`webinar-${webinar.id}`),
-                active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/`),
-                children: [
+            // 웨비나/설문조사 로드
+            const clientEvents = webinars.get(client.id) || []
+            clientEvents.forEach(event => {
+              const isSurvey = event.type === 'survey'
+              const eventNode: TreeNode = {
+                id: `${isSurvey ? 'survey' : 'webinar'}-${event.id}`,
+                label: event.title,
+                type: 'webinar', // TreeNode 타입은 webinar로 통일
+                icon: isSurvey ? '📋' : '🎥',
+                expanded: expandedNodes.has(`${isSurvey ? 'survey' : 'webinar'}-${event.id}`),
+                active: isSurvey 
+                  ? pathname.includes(`/client/${client.id}/surveys/${event.id}`)
+                  : pathname.includes(`/webinar/${event.slug || event.id}/`),
+                children: isSurvey ? [
                   {
-                    id: `webinar-${webinar.id}-console`,
+                    id: `survey-${event.id}-console`,
+                    label: '콘솔',
+                    type: 'page',
+                    href: `/client/${client.id}/surveys/${event.id}`,
+                    icon: '🎛️',
+                    active: pathname.includes(`/client/${client.id}/surveys/${event.id}`)
+                  }
+                ] : [
+                  {
+                    id: `webinar-${event.id}-console`,
                     label: '운영 콘솔',
                     type: 'page',
-                    href: `/webinar/${webinar.slug || webinar.id}/console`,
+                    href: `/webinar/${event.slug || event.id}/console`,
                     icon: '🎛️',
-                    active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/console`)
+                    active: pathname.includes(`/webinar/${event.slug || event.id}/console`)
                   },
                   {
-                    id: `webinar-${webinar.id}-registrants`,
+                    id: `webinar-${event.id}-registrants`,
                     label: '등록자',
                     type: 'page',
-                    href: `/webinar/${webinar.slug || webinar.id}/registrants`,
+                    href: `/webinar/${event.slug || event.id}/registrants`,
                     icon: '👥',
-                    active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/registrants`)
+                    active: pathname.includes(`/webinar/${event.slug || event.id}/registrants`)
                   },
                   {
-                    id: `webinar-${webinar.id}-stats`,
+                    id: `webinar-${event.id}-stats`,
                     label: '통계',
                     type: 'page',
-                    href: `/webinar/${webinar.slug || webinar.id}/stats`,
+                    href: `/webinar/${event.slug || event.id}/stats`,
                     icon: '📊',
-                    active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/stats`)
+                    active: pathname.includes(`/webinar/${event.slug || event.id}/stats`)
                   }
                 ]
               }
-              clientNode.children!.push(webinarNode)
+              clientNode.children!.push(eventNode)
             })
 
             agencyNode.children!.push(clientNode)
@@ -421,14 +437,6 @@ export default function SidebarTree({ organizations }: SidebarTreeProps) {
                 active: pathname === `/client/${client.id}/dashboard`
               },
               {
-                id: `client-${client.id}-webinars`,
-                label: '이벤트(웨비나)',
-                type: 'page',
-                href: `/client/${client.id}/webinars`,
-                icon: '🎥',
-                active: pathname.includes(`/client/${client.id}/webinars`)
-              },
-              {
                 id: `client-${client.id}-accounts`,
                 label: '가입계정관리',
                 type: 'page',
@@ -447,43 +455,55 @@ export default function SidebarTree({ organizations }: SidebarTreeProps) {
             ]
           }
 
-          const clientWebinars = webinars.get(client.id) || []
-          clientWebinars.forEach(webinar => {
-            const webinarNode: TreeNode = {
-              id: `webinar-${webinar.id}`,
-              label: webinar.title,
-              type: 'webinar',
-              icon: '🎥',
-              expanded: expandedNodes.has(`webinar-${webinar.id}`),
-              active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/`),
-              children: [
+          const clientEvents = webinars.get(client.id) || []
+          clientEvents.forEach(event => {
+            const isSurvey = event.type === 'survey'
+            const eventNode: TreeNode = {
+              id: `${isSurvey ? 'survey' : 'webinar'}-${event.id}`,
+              label: event.title,
+              type: 'webinar', // TreeNode 타입은 webinar로 통일
+              icon: isSurvey ? '📋' : '🎥',
+              expanded: expandedNodes.has(`${isSurvey ? 'survey' : 'webinar'}-${event.id}`),
+              active: isSurvey 
+                ? pathname.includes(`/client/${client.id}/surveys/${event.id}`)
+                : pathname.includes(`/webinar/${event.slug || event.id}/`),
+              children: isSurvey ? [
                 {
-                  id: `webinar-${webinar.id}-console`,
+                  id: `survey-${event.id}-console`,
+                  label: '콘솔',
+                  type: 'page',
+                  href: `/client/${client.id}/surveys/${event.id}`,
+                  icon: '🎛️',
+                  active: pathname.includes(`/client/${client.id}/surveys/${event.id}`)
+                }
+              ] : [
+                {
+                  id: `webinar-${event.id}-console`,
                   label: '운영 콘솔',
                   type: 'page',
-                  href: `/webinar/${webinar.slug || webinar.id}/console`,
+                  href: `/webinar/${event.slug || event.id}/console`,
                   icon: '🎛️',
-                  active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/console`)
+                  active: pathname.includes(`/webinar/${event.slug || event.id}/console`)
                 },
                 {
-                  id: `webinar-${webinar.id}-registrants`,
+                  id: `webinar-${event.id}-registrants`,
                   label: '등록자',
                   type: 'page',
-                  href: `/webinar/${webinar.slug || webinar.id}/registrants`,
+                  href: `/webinar/${event.slug || event.id}/registrants`,
                   icon: '👥',
-                  active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/registrants`)
+                  active: pathname.includes(`/webinar/${event.slug || event.id}/registrants`)
                 },
                 {
-                  id: `webinar-${webinar.id}-stats`,
+                  id: `webinar-${event.id}-stats`,
                   label: '통계',
                   type: 'page',
-                  href: `/webinar/${webinar.slug || webinar.id}/stats`,
+                  href: `/webinar/${event.slug || event.id}/stats`,
                   icon: '📊',
-                  active: pathname.includes(`/webinar/${webinar.slug || webinar.id}/stats`)
+                  active: pathname.includes(`/webinar/${event.slug || event.id}/stats`)
                 }
               ]
             }
-            clientNode.children!.push(webinarNode)
+            clientNode.children!.push(eventNode)
           })
 
           tree.push(clientNode)
@@ -580,3 +600,4 @@ export default function SidebarTree({ organizations }: SidebarTreeProps) {
     </nav>
   )
 }
+

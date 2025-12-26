@@ -592,6 +592,90 @@
   - 동일한 패딩 및 최대 너비 설정 (`p-8`, `max-w-7xl mx-auto`)
   - 사이드바 너비에 맞춘 콘텐츠 영역 자동 조정
 
+## [2025-01-XX] 설문조사 캠페인 모듈 구현 완료
+- ✅ 설문조사 캠페인 데이터베이스 스키마 (`034_create_event_survey_campaigns.sql`)
+  - `event_survey_campaigns` 테이블 (캠페인 정보)
+  - `event_survey_entries` 테이블 (참여자 기록)
+  - `survey_no` 발급 시스템 (순차 번호)
+  - `code6` 6자리 확인 코드 시스템
+  - RLS 정책 및 트리거 설정
+- ✅ 설문조사 캠페인 API (`/api/event-survey/campaigns/*`)
+  - 캠페인 생성 (`POST /create`)
+  - 캠페인 목록 조회 (`GET /list`)
+  - 캠페인 상세 조회 (`GET /[campaignId]`)
+  - 캠페인 수정 (`PUT /[campaignId]`)
+  - 캠페인 삭제 (`DELETE /[campaignId]`)
+  - 상태 변경 (`PATCH /[campaignId]`)
+  - 샘플 폼 생성 (`POST /[campaignId]/create-sample-form`)
+- ✅ 설문조사 공개 페이지 (`/event/[...path]`)
+  - 웰컴 페이지 (`/event/{public_path}`)
+  - 설문 페이지 (`/event/{public_path}/survey`)
+  - 완료 페이지 (`/event/{public_path}/done`)
+  - 디스플레이 페이지 (`/event/{public_path}/display`)
+  - QR 코드 표시 기능
+- ✅ 설문조사 제출 API (`/api/public/event-survey/[campaignId]/submit`)
+  - 공개 제출 처리 (인증 불필요)
+  - 전화번호 기반 중복 참여 방지
+  - `survey_no` 자동 발급
+  - `form_submissions` 및 `form_answers` 생성
+  - 개인정보 동의 데이터 저장 (`consent_data`)
+- ✅ 설문조사 관리 UI
+  - 설문조사 생성 페이지 (`/client/[clientId]/surveys/new`)
+  - 설문조사 목록 페이지 (`/client/[clientId]/surveys`) - 대시보드로 리다이렉트
+  - 설문조사 상세 페이지 (`/client/[clientId]/surveys/[campaignId]`)
+  - 운영 콘솔 (개요, 폼 관리, 공개페이지 설정, 참여자 관리, 설정 탭)
+- ✅ 통합 대시보드 (`/client/[clientId]/dashboard`)
+  - 웨비나와 설문조사를 통합 목록으로 표시
+  - 타입별 태그 표시 ("설문 | 웨비나")
+  - 통합 메뉴 (공개페이지, 콘솔, 통계, 관리자 접속)
+- ✅ 폼 시스템 확장 (`035_modify_forms_for_campaigns.sql`)
+  - `forms` 테이블에 `campaign_id` 추가
+  - `webinar_id` nullable로 변경
+  - 설문조사와 웨비나 모두에서 폼 재사용 가능
+- ✅ 공개 설문 제출 지원 (`036_make_form_submissions_nullable_for_public_surveys.sql`)
+  - `form_submissions.participant_id` nullable
+  - `form_answers.participant_id` nullable
+  - 공개 설문에서 인증 없이 제출 가능
+- ✅ 개인정보 동의 데이터 저장 (`037_add_consent_data_to_survey_entries.sql`)
+  - `event_survey_entries.consent_data` JSONB 필드 추가
+  - 동의 항목별 동의 여부 저장
+- ✅ 폼 설정 시스템 (`038_add_form_config_for_survey_fields.sql`)
+  - `forms.config` JSONB 필드 추가
+  - 기본 필드 설정 (회사명, 이름, 전화번호)
+  - 개인정보 동의 항목 설정
+  - 헤더 이미지 설정
+- ✅ 폼 관리 탭 기능
+  - 폼 제목/설명 편집
+  - 기본 필드 설정 (사용/필수 여부, 라벨)
+  - 개인정보 동의 항목 설정 (사용/필수 여부, 제목, 내용)
+  - 설문 페이지 미리보기 기능
+- ✅ 설문 페이지 미리보기 기능
+  - 폼 관리 탭에서 "미리보기" 버튼 클릭 시 설문 페이지 표시
+  - 편집 중인 폼 데이터 실시간 반영
+  - 미리보기 모드에서 제출 차단
+  - "새 탭에서 열기" 기능으로 실제 공개 페이지 확인 가능
+- ✅ 권한 확인 개선
+  - 샘플 폼 생성 API에 에이전시 멤버십 확인 추가
+  - 설문조사 관련 모든 API에 일관된 권한 확인 로직 적용
+- ✅ 빌드 오류 수정
+  - JSX 구문 오류 수정 (조건부 렌더링 닫는 태그)
+  - TypeScript 타입 오류 수정 (SettingsTab)
+- ✅ 설문조사 목록 페이지 제거
+  - `/client/[clientId]/surveys` 페이지를 대시보드로 리다이렉트
+  - 웨비나와 설문조사 통합 관리
+- ✅ 설문 빌더 개선 (미리보기 인라인 편집 기능)
+  - 미리보기에서 소개 텍스트 인라인 편집 (participationTitle, participationStep1-3, requiredNotice, bottomNotice)
+  - 미리보기에서 문항 텍스트 인라인 편집 (선택지 제외)
+  - 문항 클릭 시 폼 관리 영역으로 스크롤 및 하이라이트
+  - 양방향 동기화 강화 (폼 관리 ↔ 미리보기 실시간 반영)
+- ✅ 웰컴 페이지 디자인 개선
+  - 헤더 이미지 추가 (HPE 부스 이벤트 이미지, 원본 크기의 50%)
+  - 톤앤매너 변경 (purple/pink → blue/cyan/teal)
+  - 콘텐츠 영역 너비를 헤더 이미지와 동일하게 맞춤 (50%)
+- ✅ 타입 오류 수정
+  - `Form` 인터페이스에 `introTexts` 타입 추가
+  - `handleStartEdit` 및 `handleSaveEdit`에서 optional 필드 처리 개선
+
 ## 남은 작업
 
 ### Phase 3 - 웨비나 및 실시간 기능 (대부분 완료)

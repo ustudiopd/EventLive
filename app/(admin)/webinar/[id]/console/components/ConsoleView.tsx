@@ -7,6 +7,7 @@ import ChatModeration from './ChatModeration'
 import FormManagement from './FormManagement'
 import FileManagement from './FileManagement'
 import GiveawayManagement from './GiveawayManagement'
+import SettingsTab from './SettingsTab'
 
 interface Webinar {
   id: string
@@ -14,6 +15,12 @@ interface Webinar {
   title: string
   description?: string
   youtube_url: string
+  start_time?: string | null
+  end_time?: string | null
+  max_participants?: number | null
+  is_public: boolean
+  access_policy: string
+  client_id: string
   clients?: {
     id: string
     name: string
@@ -31,9 +38,14 @@ interface ConsoleViewProps {
  * Q&A 모더레이션, 퀴즈, 추첨 등을 관리하는 운영자 전용 페이지
  */
 export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
-  const [activeTab, setActiveTab] = useState<'qa' | 'chat' | 'forms' | 'files' | 'giveaways'>('qa')
+  const [activeTab, setActiveTab] = useState<'qa' | 'chat' | 'forms' | 'files' | 'giveaways' | 'settings'>('qa')
+  const [webinarData, setWebinarData] = useState(webinar)
   // slug가 있으면 slug를 사용하고, 없으면 id를 사용 (URL용)
-  const webinarSlug = webinar.slug || webinar.id
+  const webinarSlug = webinarData.slug || webinarData.id
+  
+  const handleWebinarUpdate = (updatedWebinar: any) => {
+    setWebinarData(updatedWebinar)
+  }
   
   return (
     <div className="p-8">
@@ -54,7 +66,7 @@ export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
                     운영 콘솔
                   </h1>
                 </div>
-                <p className="text-gray-600">{webinar.title}</p>
+                <p className="text-gray-600">{webinarData.title}</p>
               </div>
               <div className="flex items-center gap-3">
                 <Link
@@ -69,10 +81,10 @@ export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
                 >
                   관리자 접속
                 </Link>
-                {webinar.clients?.logo_url && (
+                {webinarData.clients?.logo_url && (
                   <img 
-                    src={webinar.clients.logo_url} 
-                    alt={webinar.clients.name}
+                    src={webinarData.clients.logo_url} 
+                    alt={webinarData.clients.name}
                     className="h-12 w-auto"
                   />
                 )}
@@ -135,6 +147,16 @@ export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
             >
               🎁 추첨
             </button>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`px-6 py-4 text-sm font-medium transition-colors ${
+                activeTab === 'settings'
+                  ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              ⚙️ 설정
+            </button>
           </div>
         </div>
         
@@ -143,35 +165,42 @@ export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
           {activeTab === 'qa' && (
             <div>
               <h2 className="text-xl font-semibold mb-4">Q&A 모더레이션</h2>
-              <QAModeration webinarId={webinar.id} />
+              <QAModeration webinarId={webinarData.id} />
             </div>
           )}
           
           {activeTab === 'chat' && (
             <div>
               <h2 className="text-xl font-semibold mb-4">채팅 관리</h2>
-              <ChatModeration webinarId={webinar.id} />
+              <ChatModeration webinarId={webinarData.id} />
             </div>
           )}
           
           {activeTab === 'forms' && (
             <div>
               <h2 className="text-xl font-semibold mb-4">설문/퀴즈 관리</h2>
-              <FormManagement webinarId={webinar.id} />
+              <FormManagement webinarId={webinarData.id} />
             </div>
           )}
           
           {activeTab === 'files' && (
             <div>
               <h2 className="text-xl font-semibold mb-4">발표자료 관리</h2>
-              <FileManagement webinarId={webinar.id} />
+              <FileManagement webinarId={webinarData.id} />
             </div>
           )}
           
           {activeTab === 'giveaways' && (
             <div>
               <h2 className="text-xl font-semibold mb-4">추첨 관리</h2>
-              <GiveawayManagement webinarId={webinar.id} />
+              <GiveawayManagement webinarId={webinarData.id} />
+            </div>
+          )}
+          
+          {activeTab === 'settings' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">웨비나 설정</h2>
+              <SettingsTab webinar={webinarData} onWebinarUpdate={handleWebinarUpdate} />
             </div>
           )}
         </div>
@@ -180,3 +209,4 @@ export default function ConsoleView({ webinar, userRole }: ConsoleViewProps) {
     </div>
   )
 }
+

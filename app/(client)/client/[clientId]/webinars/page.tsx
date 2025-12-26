@@ -13,7 +13,6 @@ export default function WebinarsPage() {
   const [webinars, setWebinars] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [editingWebinar, setEditingWebinar] = useState<any>(null)
   
   useEffect(() => {
     async function fetchData() {
@@ -52,44 +51,6 @@ export default function WebinarsPage() {
     fetchData()
   }, [clientId])
 
-  const handleDelete = async (webinarId: string) => {
-    if (!confirm('정말 이 웨비나를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/webinars/${webinarId}`, {
-        method: 'DELETE',
-      })
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || '웨비나 삭제 실패')
-      }
-
-      // 목록 새로고침
-      const webinarsResponse = await fetch(`/api/webinars/list?clientId=${clientId}`)
-      const webinarsData = await webinarsResponse.json()
-      
-      if (webinarsResponse.ok) {
-        setWebinars(webinarsData.webinars || [])
-      }
-    } catch (err: any) {
-      console.error('웨비나 삭제 오류:', err)
-      alert(err.message || '웨비나 삭제 중 오류가 발생했습니다')
-    }
-  }
-
-  const handleEditSuccess = async () => {
-    // 목록 새로고침
-    const webinarsResponse = await fetch(`/api/webinars/list?clientId=${clientId}`)
-    const webinarsData = await webinarsResponse.json()
-    
-    if (webinarsResponse.ok) {
-      setWebinars(webinarsData.webinars || [])
-    }
-  }
   
   const getWebinarStatus = (webinar: any) => {
     if (!webinar.start_time) return 'scheduled'
@@ -205,9 +166,10 @@ export default function WebinarsPage() {
                                   <>
                               <Link 
                                       href={`/webinar/${webinarSlug}`}
+                                target="_blank"
                                 className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
                               >
-                                웨비나링크
+                                공개페이지
                               </Link>
                               <ShareLinkButton 
                                 webinarId={webinar.id} 
@@ -228,18 +190,6 @@ export default function WebinarsPage() {
                                   </>
                                 )
                               })()}
-                              <button
-                                onClick={() => setEditingWebinar(webinar)}
-                                className="text-purple-600 hover:text-purple-800 font-medium hover:underline"
-                              >
-                                수정
-                              </button>
-                              <button
-                                onClick={() => handleDelete(webinar.id)}
-                                className="text-red-600 hover:text-red-800 font-medium hover:underline"
-                              >
-                                삭제
-                              </button>
                             </div>
                           </td>
                         </tr>
@@ -265,14 +215,6 @@ export default function WebinarsPage() {
         </div>
       </div>
 
-      {editingWebinar && (
-        <WebinarEditModal
-          webinar={editingWebinar}
-          isOpen={!!editingWebinar}
-          onClose={() => setEditingWebinar(null)}
-          onSuccess={handleEditSuccess}
-        />
-      )}
     </div>
   )
 }
