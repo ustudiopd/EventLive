@@ -42,64 +42,109 @@ export default function PublicDashboardClient({ campaign }: PublicDashboardClien
     }
   }
   
-  // 옵션별 색상 결정 함수
-  const getColorForOption = (orderNo: number, optionText: string, totalOptions: number) => {
-    // 문항 1: 긴박도에 따른 그라데이션
+  // 옵션별 색상 결정 함수 (문항별로 컬러풀하고 대비가 뚜렷한 색상 팔레트 사용)
+  const getColorForOption = (orderNo: number, optionText: string, optionIndex: number, totalOptions: number) => {
+    // 문항 1: 빨강/주황/노랑/초록 계열 (긴박도) - 컬러풀
     if (orderNo === 1) {
-      const urgencyColors: Record<string, string> = {
-        '1주일 이내': '#dc2626',
-        '1개월 이내': '#ea580c',
-        '1개월 - 3개월': '#f59e0b',
-        '3개월 - 6개월': '#84cc16',
-        '6개월 - 12개월': '#22c55e',
-        '1년 이후': '#10b981',
-        '계획없음': '#d1d5db',
+      const urgencyColors = [
+        '#dc2626', // 진한 빨강
+        '#ea580c', // 주황
+        '#f59e0b', // 노랑
+        '#84cc16', // 연두
+        '#22c55e', // 초록
+        '#10b981', // 청록
+        '#d1d5db', // 연한 회색
+      ]
+      // 텍스트 매칭 시도
+      const textMatch: Record<string, number> = {
+        '1주일 이내': 0,
+        '1개월 이내': 1,
+        '1개월 - 3개월': 2,
+        '3개월 - 6개월': 3,
+        '6개월 - 12개월': 4,
+        '1년 이후': 5,
+        '계획없음': 6,
+        '계획 없음': 6,
       }
-      return urgencyColors[optionText] || '#3b82f6'
+      const matchedIndex = textMatch[optionText]
+      if (matchedIndex !== undefined) {
+        return urgencyColors[matchedIndex] || urgencyColors[optionIndex % urgencyColors.length]
+      }
+      return urgencyColors[optionIndex % urgencyColors.length]
     }
     
-    // 문항 2: 프로젝트 종류별 색상
+    // 문항 2: 다양한 색상 팔레트 (파란톤 대신 컬러풀하게)
     if (orderNo === 2) {
-      const projectColors: Record<string, string> = {
-        '유무선 캠퍼스 & 브랜치 네트워크': '#3b82f6',
-        '데이터센터 네트워크': '#8b5cf6',
-        'WAN/SD-WAN': '#ec4899',
-        '보안 네트워크': '#f59e0b',
-        '클라우드 네트워크': '#10b981',
-        '엣지 네트워크': '#06b6d4',
-      }
-      return projectColors[optionText] || '#6366f1'
+      const projectColors = [
+        '#3b82f6', // 파랑
+        '#10b981', // 초록
+        '#f59e0b', // 주황
+        '#ef4444', // 빨강
+        '#8b5cf6', // 보라
+        '#ec4899', // 핑크
+        '#06b6d4', // 청록
+        '#84cc16', // 연두
+        '#f97316', // 오렌지
+        '#6366f1', // 인디고
+        '#14b8a6', // 틸
+        '#d1d5db', // 회색
+      ]
+      return projectColors[optionIndex % projectColors.length]
     }
     
-    // 문항 3: 후속 조치 의향별 색상
+    // 문항 3: 다양한 색상 팔레트 (보라톤 대신 컬러풀하게)
     if (orderNo === 3) {
-      const actionColors: Record<string, string> = {
-        '방문 요청': '#10b981',
-        '온라인 미팅': '#3b82f6',
-        '전화 상담': '#f59e0b',
-        '관심 없음': '#9ca3af',
+      const actionColors = [
+        '#10b981', // 초록
+        '#3b82f6', // 파랑
+        '#f59e0b', // 주황
+        '#ef4444', // 빨강
+        '#8b5cf6', // 보라
+        '#ec4899', // 핑크
+        '#06b6d4', // 청록
+        '#84cc16', // 연두
+        '#f97316', // 오렌지
+        '#6366f1', // 인디고
+        '#14b8a6', // 틸
+        '#9ca3af', // 회색 (관심 없음용)
+      ]
+      // 텍스트 매칭 시도
+      const textMatch: Record<string, number> = {
+        '방문 요청': 0,
+        'HPE 네트워크 전문가의 방문 요청': 0,
+        '온라인 미팅': 1,
+        'HPE 네트워크 전문가의 온라인 미팅 요청': 1,
+        '전화 상담': 2,
+        'HPE 네트워크 전문가의 전화 상담 요청': 2,
+        '관심 없음': 11,
       }
-      return actionColors[optionText] || '#6366f1'
+      const matchedIndex = textMatch[optionText]
+      if (matchedIndex !== undefined) {
+        return actionColors[matchedIndex] || actionColors[optionIndex % actionColors.length]
+      }
+      return actionColors[optionIndex % actionColors.length]
     }
     
-    // 기본: 순차적 색상
-    const colors = [
-      '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b',
-      '#10b981', '#06b6d4', '#ef4444', '#6366f1'
+    // 기본: 컬러풀한 색상 팔레트
+    const defaultPalettes = [
+      ['#dc2626', '#ea580c', '#f59e0b', '#84cc16', '#22c55e', '#10b981'], // 빨강/주황/초록 계열
+      ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'], // 다양한 색상
+      ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'], // 다양한 색상
     ]
-    return colors[totalOptions % colors.length] || '#6366f1'
+    const palette = defaultPalettes[(orderNo - 1) % defaultPalettes.length]
+    return palette[optionIndex % palette.length]
   }
   
   // 문항별 차트 렌더링
   const renderQuestionChart = (stat: any) => {
-    const chartData = stat.options.map((option: any) => {
+    const chartData = stat.options.map((option: any, index: number) => {
       const optionId = typeof option === 'string' ? option : option.id
       const optionText = typeof option === 'string' ? option : option.text
       const count = stat.choiceDistribution[optionId] || 0
       const percentage = stat.totalAnswers > 0 
         ? (count / stat.totalAnswers * 100) 
         : 0
-      const fill = getColorForOption(stat.orderNo, optionText, stat.options.length)
+      const fill = getColorForOption(stat.orderNo, optionText, index, stat.options.length)
       return { name: optionText, value: count, percentage, fill }
     })
     

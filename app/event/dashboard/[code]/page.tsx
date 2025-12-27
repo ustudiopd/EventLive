@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { Metadata } from 'next'
 import { createAdminSupabase } from '@/lib/supabase/admin'
 import PublicDashboardClient from './PublicDashboardClient'
 
@@ -6,6 +7,54 @@ import PublicDashboardClient from './PublicDashboardClient'
  * 공개 대시보드 페이지
  * /event/dashboard/{code}
  */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ code: string }>
+}): Promise<Metadata> {
+  const { code } = await params
+  
+  if (!code || code.length !== 6) {
+    return {
+      title: '대시보드',
+    }
+  }
+  
+  const admin = createAdminSupabase()
+  
+  // dashboard_code로 캠페인 조회
+  const { data: campaign } = await admin
+    .from('event_survey_campaigns')
+    .select('title')
+    .eq('dashboard_code', code.toUpperCase())
+    .eq('status', 'published')
+    .maybeSingle()
+  
+  if (!campaign) {
+    return {
+      title: '대시보드',
+    }
+  }
+  
+  const title = `${campaign.title} 대시보드`
+  const description = `${campaign.title} 설문조사 통계 대시보드`
+  
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: 'website',
+    },
+    twitter: {
+      card: 'summary',
+      title,
+      description,
+    },
+  }
+}
+
 export default async function PublicDashboardPage({
   params,
 }: {
