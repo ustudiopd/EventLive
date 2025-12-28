@@ -254,3 +254,4 @@ const responseJsonSchema = undefined
 **보고서 작성자**: AI Assistant  
 **마지막 업데이트**: 2025-01-XX
 
+

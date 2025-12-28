@@ -28,6 +28,8 @@ interface ReportDetail extends Report {
   statistics_snapshot: any
   references_used: any
   action_pack?: any
+  analysis_pack?: any
+  decision_pack?: any
   generation_warnings?: any[]
 }
 
@@ -1173,10 +1175,32 @@ export default function AnalysisReportSection({ campaignId }: AnalysisReportSect
   }
 
   const renderDonutCharts = () => {
-    if (!selectedReport?.statistics_snapshot?.questions) return null
+    // 새 파이프라인 (analysis_pack) 또는 기존 파이프라인 (statistics_snapshot.questions) 지원
+    let questions: any[] = []
+    
+    if (selectedReport?.analysis_pack?.questions) {
+      // 새 파이프라인: analysis_pack.questions 사용
+      questions = selectedReport.analysis_pack.questions
+    } else if (selectedReport?.statistics_snapshot?.questions) {
+      // 기존 파이프라인: statistics_snapshot.questions 사용
+      questions = selectedReport.statistics_snapshot.questions
+    }
+    
+    if (questions.length === 0) return null
 
-    const summaryQuestions = selectedReport.statistics_snapshot.questions
-      .filter((q: any) => q.analysis?.summary_chart && q.questionType !== 'text')
+    // 새 파이프라인은 topChoices를 사용, 기존 파이프라인은 choiceDistribution 사용
+    const summaryQuestions = questions
+      .filter((q: any) => {
+        // 새 파이프라인: topChoices가 있고 questionType이 text가 아닌 경우
+        if (q.topChoices && q.topChoices.length > 0 && q.questionType !== 'text') {
+          return true
+        }
+        // 기존 파이프라인: analysis?.summary_chart가 있는 경우
+        if (q.analysis?.summary_chart && q.questionType !== 'text') {
+          return true
+        }
+        return false
+      })
       .slice(0, 6)
 
     if (summaryQuestions.length === 0) return null
@@ -1184,17 +1208,33 @@ export default function AnalysisReportSection({ campaignId }: AnalysisReportSect
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         {summaryQuestions.map((question: any) => {
-          const data = Object.entries(question.choiceDistribution || {}).map(([key, value]) => {
-            const option = question.options?.find((opt: any) => (opt.id || opt) === key)
-            return {
-              name: option ? (option.text || option) : key,
-              value: value as number,
-            }
-          })
+          // 새 파이프라인: topChoices를 사용하여 데이터 생성
+          let data: any[] = []
+          
+          if (question.topChoices && question.topChoices.length > 0) {
+            // 새 파이프라인: topChoices를 차트 데이터로 변환
+            data = question.topChoices.map((choice: any) => ({
+              name: choice.text,
+              value: choice.count,
+            }))
+          } else if (question.choiceDistribution) {
+            // 기존 파이프라인: choiceDistribution 사용
+            data = Object.entries(question.choiceDistribution).map(([key, value]) => {
+              const option = question.options?.find((opt: any) => (opt.id || opt) === key)
+              return {
+                name: option ? (option.text || option) : key,
+                value: value as number,
+              }
+            })
+          }
+          
+          if (data.length === 0) return null
 
+          if (data.length === 0) return null
+          
           return (
-            <div key={question.questionId} className="bg-white p-4 rounded-lg shadow border border-slate-200">
-              <h4 className="text-sm font-semibold text-slate-900 mb-3 line-clamp-2">{question.questionBody}</h4>
+            <div key={question.questionId || question.id} className="bg-white p-4 rounded-lg shadow border border-slate-200">
+              <h4 className="text-sm font-semibold text-slate-900 mb-3 line-clamp-2">{question.questionBody || question.question}</h4>
               <ResponsiveContainer width="100%" height={250}>
                 <PieChart>
                   <Pie
@@ -1365,8 +1405,9 @@ export default function AnalysisReportSection({ campaignId }: AnalysisReportSect
 
         {/* AI 분석 본문 */}
         <div className="prose prose-slate max-w-none">
-          {selectedReport.action_pack ? (
-            <ActionPackRenderer actionPack={selectedReport.action_pack} />
+          {/* 새 파이프라인 (decision_pack) 또는 기존 파이프라인 (action_pack) 지원 */}
+          {selectedReport.decision_pack || selectedReport.action_pack ? (
+            <ActionPackRenderer actionPack={selectedReport.decision_pack || selectedReport.action_pack} />
           ) : (
             <MarkdownRenderer content={selectedReport.report_md || selectedReport.report_content_md || selectedReport.report_content_full_md} />
           )}

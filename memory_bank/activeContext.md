@@ -5,22 +5,24 @@
 - **도메인**: EventFlow.kr
 
 ## 1. 현재 집중하고 있는 작업  
-- **작업명**: AI 분석 보고서 Decision-grade v3 구현 및 품질 개선
+- **작업명**: AI 분석 보고서 고도화 파이프라인 구현 및 안정화
 - **목표**: 
-  - 의사결정 지원을 위한 Decision Cards 구현
-  - 시간대별 실행 계획 구조화 (Action Board)
-  - Evidence Catalog 및 Capacity Plan 자동 생성
-  - 보고서 생성 UX 개선 (초시계 카운터, 생성 시간 표시)
-- **상태**: ✅ Decision-grade v3 구현 완료
-  - Evidence Catalog 및 Capacity Plan 생성 함수 구현 완료
-  - Decision Cards 및 Action Board 스키마 추가 완료
-  - AI 프롬프트 업데이트 완료 (Decision Cards, Action Board 가이드 추가)
-  - 렌더링 함수 업데이트 완료 (Decision Cards, Action Board 렌더링)
-  - Linter 규칙 강화 완료 (Decision-grade 품질 게이트)
-  - UI 컴포넌트 업데이트 완료 (Decision Cards, Action Board UI)
-  - Gemini 모델 변경 완료 (gemini-3-flash-preview)
-  - owner 필드 정규화 로직 추가 완료
-  - 초시계 카운터 및 생성 시간 표시 기능 추가 완료
+  - 두 단계 파이프라인 구조 구현 (Analysis Pack + Decision Pack)
+  - Decision Pack 생성 안정화 (JSON mode, 파싱 개선)
+  - 폴백 메커니즘 구현 (Decision Pack 실패 시 Analysis Pack만 저장)
+  - Evidence 매칭 정확도 개선 (교차표 우선 연결)
+  - 리드 스코어링 조건부 생성 (필요한 문항 있을 때만)
+- **상태**: ✅ 고도화 파이프라인 구현 완료 및 안정화 작업 완료
+  - Analysis Pack 생성 함수 구현 완료 (buildAnalysisPack.ts)
+  - Decision Pack 생성 함수 구현 완료 (generateDecisionPack.ts)
+  - JSON 파싱 안정화 완료 (코드블록 + raw JSON 모두 처리)
+  - 폴백 메커니즘 구현 완료 (Decision Pack 실패 시 Analysis Pack만 저장)
+  - Evidence fallback 수정 완료 (실제 존재하는 Evidence만 사용)
+  - LeadQueue 조건부 생성 패치 완료 (timeframe + followup_intent 필요)
+  - Highlights 교차표 우선 매칭 패치 완료 (E4~E6 우선 연결)
+  - 도넛 차트 새 파이프라인 지원 완료
+  - Decision Pack 렌더링 지원 완료
+  - 빌드 오류 수정 완료 (템플릿 리터럴, JSX 주석 등)
 
 ## 2. 다음 예정 작업  
 - **우선순위 높음**: 

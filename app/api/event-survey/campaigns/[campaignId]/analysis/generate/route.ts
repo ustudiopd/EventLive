@@ -18,6 +18,12 @@ import {
   getReferencesUsed,
   SURVEY_ANALYSIS_REFERENCES,
 } from '@/lib/references/survey-analysis-references'
+// 새 파이프라인 (고도화)
+import { buildAnalysisPack } from '@/lib/surveys/analysis/buildAnalysisPack'
+import { generateDecisionPackWithRetry } from '@/lib/surveys/analysis/generateDecisionPack'
+import { mergeAnalysisAndDecisionPack } from '@/lib/surveys/analysis/mergeAnalysisAndDecisionPack'
+import { renderFinalReportMD } from '@/lib/surveys/analysis/renderFinalReportMD'
+import { renderAnalysisPackMD } from '@/lib/surveys/analysis/renderAnalysisPackMD'
 
 export const runtime = 'nodejs'
 
@@ -31,7 +37,12 @@ export async function POST(
 ) {
   try {
     const { campaignId } = await params
-    const { lens = 'general' } = await req.json().catch(() => ({ lens: 'general' }))
+    const { lens = 'general', useNewPipeline = true } = await req.json().catch(() => ({
+      lens: 'general',
+      useNewPipeline: true,
+    }))
+
+    console.log('[analysis/generate] request body:', { lens, useNewPipeline })
 
     const admin = createAdminSupabase()
 
@@ -101,6 +112,221 @@ export async function POST(
       )
     }
 
+    // 새 파이프라인 사용 (고도화)
+    if (useNewPipeline) {
+      try {
+        const analyzedAt = new Date().toISOString()
+
+        console.log('[새 파이프라인] 시작:', { campaignId })
+
+        // 1. Analysis Pack 생성 (이미 조회한 campaign 정보 전달)
+        console.log('[새 파이프라인] Analysis Pack 생성 중...')
+        const analysisPack = await buildAnalysisPack(campaignId, campaign)
+        console.log('[새 파이프라인] Analysis Pack 생성 완료:', {
+          evidenceCount: analysisPack.evidenceCatalog.length,
+          highlightsCount: analysisPack.highlights.length,
+        })
+
+        // 2. Decision Pack 생성 (재시도 + Linter 통합)
+        console.log('[새 파이프라인] Decision Pack 생성 중...')
+        let decisionPack: any = null
+        let decisionPackWarnings: any[] = []
+        let decisionPackError: Error | null = null
+        
+        try {
+          const result = await generateDecisionPackWithRetry(analysisPack)
+          decisionPack = result.decisionPack
+          decisionPackWarnings = result.warnings
+          console.log('[새 파이프라인] Decision Pack 생성 완료:', {
+            decisionCardsCount: decisionPack.decisionCards.length,
+            warningsCount: decisionPackWarnings.length,
+          })
+        } catch (error: any) {
+          console.error('[새 파이프라인] Decision Pack 생성 실패:', {
+            message: error.message,
+            issues: error.issues,
+            stack: error.stack,
+          })
+          decisionPackError = error
+          // Decision Pack 실패해도 Analysis Pack은 저장 가능하도록 계속 진행
+        }
+
+        // 3. Decision Pack이 있으면 병합, 없으면 Analysis Pack만 사용
+        let mergedReport: any = null
+        let reportMd: string = ''
+        let analysisPackMd: string = ''
+
+        if (decisionPack) {
+          // Decision Pack이 성공한 경우: 병합 및 최종 보고서 생성
+          console.log('[새 파이프라인] 병합 및 검증 중...')
+          try {
+            mergedReport = mergeAnalysisAndDecisionPack(analysisPack, decisionPack)
+            console.log('[새 파이프라인] 병합 완료')
+
+            // 최종 보고서 렌더링
+            console.log('[새 파이프라인] 보고서 렌더링 중...')
+            reportMd = renderFinalReportMD(mergedReport)
+            analysisPackMd = renderAnalysisPackMD(analysisPack)
+            console.log('[새 파이프라인] 보고서 렌더링 완료:', {
+              reportMdLength: reportMd.length,
+              analysisPackMdLength: analysisPackMd.length,
+            })
+          } catch (error: any) {
+            console.error('[새 파이프라인] 병합/렌더링 실패:', error)
+            // 병합 실패 시 Analysis Pack만 사용
+            decisionPack = null
+            decisionPackError = error
+          }
+        }
+
+        // Decision Pack이 없으면 Analysis Pack만 저장
+        if (!decisionPack) {
+          console.log('[새 파이프라인] Decision Pack 없음, Analysis Pack만 저장')
+          reportMd = renderAnalysisPackMD(analysisPack)
+          analysisPackMd = reportMd
+        }
+
+        // 5. 레퍼런스 정보 생성
+        const referencesUsed = getReferencesUsed()
+
+        // 6. 보고서 제목 생성
+        const reportTitle = `${new Date(analyzedAt).toLocaleDateString('ko-KR')} ${new Date(analyzedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 분석 보고서`
+
+        // 7. DB 저장
+        const { data: report, error: insertError } = await admin
+          .from('survey_analysis_reports')
+          .insert({
+            campaign_id: campaignId,
+            analyzed_at: analyzedAt,
+            sample_count: analysisPack.campaign.sampleCount,
+            total_questions: analysisPack.campaign.totalQuestions,
+            report_title: reportTitle,
+            report_content: reportMd, // 최종 보고서
+            report_content_md: decisionPack?.decisionCards?.[0]?.question || '기초 분석 보고서', // 간단 요약
+            report_content_full_md: reportMd, // 완성본
+            report_md: reportMd, // Markdown
+            summary: decisionPack?.decisionCards?.[0]?.question || '기초 분석 보고서',
+            statistics_snapshot: {
+              campaign: {
+                id: campaign.id,
+                title: campaign.title,
+                analyzed_at: analyzedAt,
+              },
+              sample_count: analysisPack.campaign.sampleCount,
+              total_questions: analysisPack.campaign.totalQuestions,
+              snapshot_version: decisionPack ? '3.0' : '2.5', // Decision Pack 있으면 3.0, 없으면 2.5
+              analysis_pack: analysisPack,
+              decision_pack: decisionPack || null,
+            },
+            references_used: referencesUsed,
+            action_pack: null, // 기존 형식 호환을 위해 null
+            analysis_pack: analysisPack, // 새 필드
+            decision_pack: decisionPack || null, // 새 필드 (없으면 null)
+            generation_warnings: decisionPackError
+              ? [
+                  {
+                    level: 'error',
+                    message: decisionPackError.message,
+                    details: (decisionPackError as any).issues || [],
+                  },
+                  ...decisionPackWarnings,
+                ]
+              : decisionPackWarnings.length > 0
+                ? decisionPackWarnings
+                : null,
+            lens,
+            created_by: user.id,
+          })
+          .select()
+          .single()
+
+        if (insertError) {
+          console.error('보고서 저장 오류:', insertError)
+          return NextResponse.json(
+            { error: '보고서 저장에 실패했습니다', details: insertError.message },
+            { status: 500 }
+          )
+        }
+
+        console.log('✅ 새 파이프라인으로 보고서 생성 완료:', {
+          reportId: report.id,
+          hasDecisionPack: !!decisionPack,
+          decisionCardsCount: decisionPack?.decisionCards?.length || 0,
+          warningsCount: decisionPackWarnings.length,
+          hasError: !!decisionPackError,
+        })
+
+        return NextResponse.json({
+          success: true,
+          report: {
+            id: report.id,
+            campaign_id: report.campaign_id,
+            analyzed_at: report.analyzed_at,
+            sample_count: report.sample_count,
+            total_questions: report.total_questions,
+            lens: report.lens,
+            report_title: report.report_title,
+            summary: report.summary,
+            analysis_pack: report.analysis_pack,
+            decision_pack: report.decision_pack,
+            created_at: report.created_at,
+          },
+          // Decision Pack 생성 실패 여부 정보 제공
+          ...(decisionPackError
+            ? {
+                warning: {
+                  message: 'Decision Pack 생성에 실패했지만, 기초 분석 보고서는 생성되었습니다.',
+                  error: decisionPackError.message,
+                },
+              }
+            : {}),
+        })
+      } catch (error: any) {
+        console.error('❌ 새 파이프라인 오류:', {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+          campaignId,
+        })
+        console.error('에러 상세:', error)
+        
+        // 더 구체적인 에러 메시지 제공
+        let errorMessage = 'AI 분석 생성에 실패했습니다'
+        let errorCode = 'AI_GENERATION_FAILED'
+        
+        if (error.message?.includes('Campaign not found')) {
+          errorMessage = '캠페인을 찾을 수 없습니다'
+          errorCode = 'CAMPAIGN_NOT_FOUND'
+        } else if (error.message?.includes('No submissions found')) {
+          errorMessage = '설문 응답이 없습니다'
+          errorCode = 'NO_SUBMISSIONS'
+        } else if (error.message?.includes('No questions found')) {
+          errorMessage = '설문 문항이 없습니다'
+          errorCode = 'NO_QUESTIONS'
+        } else if (error.message?.includes('has no form assigned')) {
+          errorMessage = '캠페인에 폼이 할당되지 않았습니다'
+          errorCode = 'NO_FORM_ASSIGNED'
+        } else if (error.message?.includes('GOOGLE_API_KEY')) {
+          errorMessage = 'AI API 키가 설정되지 않았습니다'
+          errorCode = 'API_KEY_MISSING'
+        } else if (error.message?.includes('스키마 검증 실패')) {
+          errorMessage = 'AI 응답 형식이 올바르지 않습니다'
+          errorCode = 'SCHEMA_VALIDATION_FAILED'
+        }
+        
+        return NextResponse.json(
+          {
+            error: errorMessage,
+            code: errorCode,
+            details: error.message || '알 수 없는 오류',
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+          },
+          { status: 500 }
+        )
+      }
+    }
+
+    // 기존 파이프라인 (하위 호환)
     // 통계 데이터 수집 (기존 question-stats API 로직 재사용)
     const { data: entries } = await admin
       .from('event_survey_entries')

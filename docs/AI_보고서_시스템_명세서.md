@@ -983,3 +983,4 @@ dataQuality: z.array(...).min(3),  // optional 제거
 **버전**: 1.0  
 **작성자**: AI Assistant
 
+

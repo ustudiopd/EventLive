@@ -727,44 +727,60 @@
   - 편집 모드, 새 탭에서 열기, 미리보기 닫기 버튼 아이콘만 표시
   - 모바일 최적화 적용
 
-## [2025-01-XX] AI 분석 보고서 Decision-grade v3 구현 완료
-- ✅ Evidence Catalog 생성 함수 구현 (`lib/surveys/analysis/buildComputedMetrics.ts`)
-  - 모든 수치의 원천을 ID로 관리 (E1~En)
-  - 문항별 분포, 교차표 하이라이트, 리드 스코어 분포, 채널 선호도, 데이터 품질 포함
-- ✅ Capacity Plan 생성 함수 구현 (`lib/surveys/analysis/buildComputedMetrics.ts`)
-  - P0/P1 리드 수 계산
-  - 필요한 온라인 미팅/방문 미팅/SE 동행 슬롯 수 계산
-  - 티어별 권장 SLA 제공
-- ✅ Decision Cards 스키마 추가 (`lib/surveys/analysis/actionPackSchema.ts`)
-  - 의사결정 지원을 위한 구조화된 카드 (질문, 선택지 A/B/C, 추천, 근거 ID, 신뢰도)
-  - ActionPackV09Extended 스키마 생성
-- ✅ Action Board 스키마 개선 (`lib/surveys/analysis/actionPackSchema.ts`)
-  - 시간대별 실행 계획 구조화 (d0: 24시간, d7: 7일, d14: 14일)
-  - 각 Action Item에 owner, title, targetCount, kpi, steps 포함
-- ✅ AI 프롬프트 업데이트 (`lib/surveys/analysis/gemini.ts`)
-  - System Prompt에 Decision Cards 및 Action Board 생성 가이드 추가
-  - User Prompt에 Evidence Catalog 및 Capacity Plan 제공
-  - owner 필드 값 명시 ("sales", "marketing", "ops"만 허용)
-  - 첫 번째 insight에 "24시간 실행 플랜" 필수 요구사항 강조
-- ✅ 렌더링 함수 업데이트 (`lib/surveys/analysis/renderMarkdown.ts`)
-  - Decision Cards 렌더링 추가 (옵션 비교, 추천 강조, Confidence 배지)
-  - Action Board 렌더링 개선 (24h/7d/14d 구조화, KPI 강조)
-- ✅ Linter 규칙 강화 (`lib/surveys/analysis/reportLinter.ts`)
-  - Decision Cards 검증 규칙 추가 (evidenceIds, recommendation, confidence)
-  - Action Board 검증 규칙 추가 (targetCount, KPI, 일반론 문장 금지)
+## [2025-01-XX] AI 분석 보고서 고도화 파이프라인 구현 완료
+- ✅ 두 단계 파이프라인 구조 구현 (`ai보고서고도화.md` 명세서 기반)
+  - Analysis Pack (ap-1.0): 서버에서 생성하는 결정론적 데이터 구조
+  - Decision Pack (dp-1.0): LLM이 생성하는 의사결정 지원 보고서
+- ✅ Analysis Pack 생성 함수 구현 (`lib/surveys/analysis/buildAnalysisPack.ts`)
+  - 캠페인, 문항, 응답, 답변 데이터 조회
+  - 문항별 통계 계산 (분포, topChoices)
+  - 교차표 생성 및 하이라이트 추출
+  - Evidence Catalog 생성 (E1~En ID 체계)
+  - 리드 신호 생성 (조건부: timeframe + followup_intent 필요)
+  - 데이터 품질 평가
+  - Highlights 생성 (교차표 Evidence 우선 매칭)
+- ✅ Decision Pack 생성 함수 구현 (`lib/surveys/analysis/generateDecisionPack.ts`)
+  - Gemini API 호출 (JSON mode 사용)
+  - JSON 파싱 안정화 (코드블록 + raw JSON 모두 처리)
+  - Zod 스키마 검증
+  - 재시도 로직 (최대 2회)
+  - Linter 품질 검증 통합
+- ✅ Decision Pack 스키마 정의 (`lib/surveys/analysis/decisionPackSchema.ts`)
+  - Decision Cards (의사결정 지원 카드)
+  - Action Board (시간대별 실행 계획: d0/d7/d14)
+  - Playbooks (세일즈/마케팅 플레이북)
+  - Survey Next Questions (설문 개선 제안)
+- ✅ Linter 구현 (`lib/surveys/analysis/lintDecisionPack.ts`)
+  - Decision Cards 검증 (evidenceIds, recommendation, confidence)
+  - Action Board 검증 (targetCount, KPI, steps)
+  - Playbooks 검증
+  - Survey Next Questions 검증
+  - 플레이스홀더 감지
+- ✅ 병합 및 렌더링 함수 구현
+  - `mergeAnalysisAndDecisionPack.ts`: Analysis Pack + Decision Pack 병합
+  - `renderFinalReportMD.ts`: 최종 보고서 Markdown 렌더링
+  - `renderAnalysisPackMD.ts`: Analysis Pack만 렌더링 (폴백용)
+- ✅ 데이터베이스 마이그레이션 (`043_add_analysis_decision_pack_to_reports.sql`)
+  - `survey_analysis_reports` 테이블에 `analysis_pack`, `decision_pack` JSONB 컬럼 추가
+  - GIN 인덱스 추가 (쿼리 최적화)
 - ✅ API 라우트 업데이트 (`app/api/event-survey/campaigns/[campaignId]/analysis/generate/route.ts`)
-  - Evidence Catalog 및 Capacity Plan 생성 및 전달
-  - owner 필드 정규화 로직 추가 (AI가 잘못된 값 반환 시 자동 변환)
-- ✅ UI 컴포넌트 업데이트 (`app/(client)/client/[clientId]/surveys/[campaignId]/components/tabs/AnalysisReportSection.tsx`)
-  - Decision Cards 렌더링 추가 (옵션 비교, Confidence 배지)
-  - Action Board 렌더링 추가 (24h/7d/14d 타임라인, KPI 강조)
-  - Insights 섹션 추가 (V0.9 지원)
-- ✅ Gemini 모델 변경 (`lib/surveys/analysis/gemini.ts`)
-  - `gemini-2.0-flash` → `gemini-3-flash-preview`로 변경
-  - 최신 모델 활용으로 Decision Cards 및 Action Board 생성 품질 향상
-- ✅ 초시계 카운터 및 생성 시간 표시 기능 추가 (`AnalysisReportSection.tsx`)
-  - 보고서 생성 중 초시계 카운터 표시 (로딩 스피너 + 시간)
-  - 완료 알림에 생성 시간 표기 (성공/실패 모두)
+  - 새 파이프라인 통합 (`useNewPipeline = true` 기본값)
+  - Decision Pack 실패 시 Analysis Pack만 저장하는 폴백 메커니즘
+  - 상세 에러 로깅 및 구체적인 에러 코드 제공
+  - `useNewPipeline` 값 로깅 추가 (디버깅용)
+- ✅ UI 컴포넌트 업데이트 (`AnalysisReportSection.tsx`)
+  - 도넛 차트 새 파이프라인 지원 (`analysis_pack.questions.topChoices` 사용)
+  - Decision Pack 렌더링 지원 (`decision_pack` 또는 `action_pack` 모두 지원)
+  - 기존 파이프라인과 호환성 유지
+- ✅ 패치 적용 (`패치.md` 기반)
+  - LeadQueue 조건부 생성 (timeframe + followup_intent 필요)
+  - Highlights evidenceIds 교차표 우선 매칭 (E4~E6 우선 연결)
+  - 셀 표본 수 기반 신뢰도 자동 조정 (5 미만 → Hypothesis, 10 미만 → Directional)
+  - 하드코딩된 fallback 제거 (실제 존재하는 Evidence만 사용)
+- ✅ 빌드 오류 수정
+  - 템플릿 리터럴 내부 삼항 연산자 변수 분리
+  - JSX 주석 위치 수정
+  - Decision Cards options 렌더링 빈 줄 문제 수정
 
 ## 남은 작업
 
