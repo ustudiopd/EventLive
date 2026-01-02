@@ -515,7 +515,6 @@ export function buildCrosstabHighlights(
   sampleCount: number
 ): CrosstabHighlight[] {
   const highlights: CrosstabHighlight[] = []
-
   crosstabs.forEach((crosstab) => {
     crosstab.cells.forEach((cell) => {
       // 표본 수가 5 이상인 셀만 포함

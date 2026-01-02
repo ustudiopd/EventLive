@@ -238,9 +238,7 @@ export const DecisionCardOptionSchema = z.object({
   description: z.string().min(10),
   expectedImpact: z.string().min(10),
   risks: z.string().min(5).optional(),
-})
-
-/**
+})/**
  * Decision Card
  * 의사결정 지원을 위한 구조화된 카드
  */
