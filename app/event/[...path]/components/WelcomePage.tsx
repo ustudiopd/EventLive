@@ -43,7 +43,7 @@ export default function WelcomePage({ campaign, baseUrl, isDraft = false, campai
       <div className="min-h-screen bg-white font-sans text-gray-900 pb-20">
         {/* 상단 배너 */}
         <div className="w-full bg-white">
-          <div className="max-w-[640px] mx-auto">
+          <div className="max-w-[800px] mx-auto">
             <div className="relative w-full overflow-hidden flex justify-center">
               <img
                 src={headerImageUrl}
