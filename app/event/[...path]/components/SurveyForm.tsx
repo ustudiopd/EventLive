@@ -489,7 +489,7 @@ export default function SurveyForm({
               >
                 참여 확인하기
               </a>
-              <p className="text-xs text-gray-500">*모든 사항은 필수 입력칸입니다.</p>
+              <p className="text-xs text-[#00B388]">*모든 사항은 필수 입력칸입니다.</p>
             </div>
           </div>
         )}
