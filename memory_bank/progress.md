@@ -1,5 +1,41 @@
 # 완료된 작업 내역 (Progress)
 
+## [2025-01-XX] 이벤트 등록 페이지 기능 구현 완료
+- ✅ 등록 페이지 컴포넌트 구현
+  - `app/event/[...path]/components/RegistrationPage.tsx`: 공개 등록 페이지 (상세 폼)
+    - 이메일, 이름, 성, 직책, 회사명, 우편번호, 시/도, 나라/지역, 전화번호, 커스텀 질문 필드
+    - 커뮤니케이션 동의 (이메일/전화번호), 개인정보취급방침 동의
+    - 등록 확인 모드 지원 (lookup=true)
+  - `app/event/[...path]/components/RegistrationModal.tsx`: 등록 모달 컴포넌트 (간단한 폼)
+  - `app/event/[...path]/components/WelcomePage.tsx`: 환영 페이지에 등록 페이지 타입 지원 추가
+    - 등록 페이지일 때 헤더 이미지 위에 "등록하기" 버튼 오버레이 표시
+- ✅ 등록 페이지 생성 페이지 구현
+  - `app/(client)/client/[clientId]/registrations/new/page.tsx`: 등록 페이지 캠페인 생성 UI
+    - 제목, 공개 경로, 호스트, 상태 설정
+    - type='registration'으로 캠페인 생성
+- ✅ 등록 API 구현
+  - `app/api/public/event-survey/[campaignId]/register/route.ts`: 공개 등록 API
+    - 기본 정보 등록 (이름, 회사명, 전화번호)
+    - 상세 등록 정보 지원 (registration_data JSONB)
+    - 중복 등록 방지 (phone_norm 기준)
+    - survey_no 자동 발급 및 동시성 제어
+- ✅ 데이터베이스 스키마 확장
+  - `supabase/migrations/044_add_type_to_event_campaigns.sql`: 캠페인 타입 컬럼 추가
+    - type: 'survey' | 'registration'
+    - 인덱스 추가 (type, type+status 복합 인덱스)
+  - `supabase/migrations/045_add_registration_fields_to_entries.sql`: 등록 상세 정보 필드 추가
+    - registration_data JSONB 컬럼 추가
+    - GIN 인덱스 추가 (검색 성능 향상)
+- ✅ 이벤트 라우팅 확장
+  - `app/event/[...path]/page.tsx`: 등록 페이지 라우팅 지원
+    - `/event/{public_path}/register` 경로에서 등록 페이지 렌더링
+    - type='registration'인 캠페인만 등록 페이지 접근 가능
+- ✅ 주요 기능
+  - 등록 페이지와 설문조사 페이지 분리 (type 기반)
+  - 상세 등록 정보 수집 (이메일, 주소, 직책 등)
+  - 등록 확인 기능 (이름+전화번호로 조회)
+  - 완료 페이지 공유 (survey_no, code6)
+
 ## [2025-01-XX] 설문 문항 업데이트 스크립트 개선 및 문항 교체
 - ✅ 설문 문항 업데이트 스크립트 개선 (`scripts/update-survey-questions.ts`)
   - public_path 정규화 로직 추가 (슬래시 포함/미포함 모두 지원)

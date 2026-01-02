@@ -43,7 +43,7 @@ export default function WelcomePage({ campaign, baseUrl, isDraft = false, campai
       <div className="min-h-screen bg-white font-sans text-gray-900 pb-20">
         {/* 상단 배너 */}
         <div className="w-full bg-white">
-          <div className="max-w-[640px] mx-auto">
+          <div className="max-w-[800px] mx-auto">
             <div className="relative w-full overflow-hidden flex justify-center">
               <img
                 src={headerImageUrl}
@@ -52,7 +52,7 @@ export default function WelcomePage({ campaign, baseUrl, isDraft = false, campai
               />
               {/* 등록 페이지일 때 이미지 위에 등록하기 버튼 오버레이 (장소 텍스트 아래 위치) */}
               {isRegistration && (
-                <div className="absolute inset-0 flex items-end justify-center" style={{ paddingBottom: '12%' }}>
+                <div className="absolute inset-0 flex items-end justify-center" style={{ paddingBottom: '8%' }}>
                   <button
                     onClick={handleRegistrationClick}
                     className="bg-[#00B388] text-white px-6 sm:px-8 py-2.5 sm:py-3 rounded-[2.5rem] text-base sm:text-lg md:text-xl font-bold shadow-2xl hover:bg-[#008f6d] transition-colors duration-200"
