@@ -44,6 +44,12 @@ export default function Header() {
   }
   
   const isPublicPage = pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/signup')
+  const isUnsubscribePage = pathname.startsWith('/unsubscribe')
+  
+  // 수신거부 페이지는 헤더 숨김
+  if (isUnsubscribePage) {
+    return null
+  }
   
   if (isPublicPage) {
     return (
