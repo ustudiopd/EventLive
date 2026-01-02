@@ -86,7 +86,7 @@ export default function Sidebar() {
   }
   
   // 공개 페이지에서는 사이드바 숨김
-  const isPublicPage = pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/signup')
+  const isPublicPage = pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/unsubscribe')
   // 슈퍼 관리자 페이지는 데스크톱 사이드바는 별도 사용하지만 모바일 하단 메뉴는 표시
   const isSuperPage = pathname.includes('/super/')
   if (isPublicPage) return null
