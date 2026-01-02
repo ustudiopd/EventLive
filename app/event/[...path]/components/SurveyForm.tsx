@@ -478,17 +478,14 @@ export default function SurveyForm({
       </div>
 
       <div className="max-w-[640px] mx-auto px-4 sm:px-5 py-6 sm:py-10">
-        {/* 등록화면으로 돌아가기 버튼 */}
+        {/* 참여 확인하기 버튼 */}
         {publicPath && !previewMode && (
           <div className="mb-4">
             <a
-              href={`/event${publicPath}`}
+              href={`/event${publicPath}/survey?lookup=true`}
               className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              등록화면으로 돌아가기
+              참여 확인하기
             </a>
           </div>
         )}
