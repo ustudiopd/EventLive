@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { JSX } from 'react'
 import ReactMarkdown from 'react-markdown'
 import {
@@ -781,6 +781,7 @@ function MarkdownContent({ content, isCardMode, isRecommendations = false }: { c
 }
 
 export default function PublicDashboardClient({ campaign }: PublicDashboardClientProps) {
+  const [activeTab, setActiveTab] = useState<'stats' | 'reports' | 'qr-check'>('stats' as 'stats' | 'reports' | 'qr-check')
   const [loadingStats, setLoadingStats] = useState(false)
   const [questionStats, setQuestionStats] = useState<any[]>([])
   const [publicReports, setPublicReports] = useState<PublicReport[]>([])
@@ -788,12 +789,164 @@ export default function PublicDashboardClient({ campaign }: PublicDashboardClien
   const [selectedReport, setSelectedReport] = useState<PublicReportDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   
+  // QR 체크인 관련 상태
+  const [qrCode, setQrCode] = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [scanResult, setScanResult] = useState<any>(null)
+  const [verifiedEntries, setVerifiedEntries] = useState<any[]>([])
+  const [loadingVerifiedEntries, setLoadingVerifiedEntries] = useState(false)
+  const [totalRegistered, setTotalRegistered] = useState(0)
+  const [totalVerified, setTotalVerified] = useState(0)
+  const [isScanningMode, setIsScanningMode] = useState(false)
+  const qrInputRef = useRef<HTMLInputElement>(null)
+  const scanTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
   useEffect(() => {
     if (campaign.form_id) {
       loadQuestionStats()
     }
     loadPublicReports()
-  }, [campaign.id, campaign.form_id])
+    if (activeTab === 'qr-check') {
+      loadVerifiedEntries()
+    }
+  }, [campaign.id, campaign.form_id, activeTab])
+
+  // 스캔 모드가 열릴 때 입력 필드에 포커스
+  useEffect(() => {
+    if (isScanningMode && qrInputRef.current) {
+      setTimeout(() => {
+        qrInputRef.current?.focus()
+      }, 100)
+    }
+  }, [isScanningMode])
+
+  // ESC 키로 스캔 모드 닫기
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isScanningMode) {
+        setIsScanningMode(false)
+        setQrCode('')
+        setScanResult(null)
+      }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isScanningMode])
+
+  // QR 코드 입력 완료 감지 (자동 스캔)
+  useEffect(() => {
+    if (!isScanningMode || !qrCode.trim() || scanning) return
+
+    // 기존 타이머 클리어
+    if (scanTimeoutRef.current) {
+      clearTimeout(scanTimeoutRef.current)
+    }
+
+    // 입력이 멈춘 후 500ms 후 자동 스캔
+    scanTimeoutRef.current = setTimeout(async () => {
+      if (qrCode.trim() && !scanning) {
+        await performScan(qrCode)
+      }
+    }, 500)
+
+    return () => {
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current)
+      }
+    }
+  }, [qrCode, isScanningMode, scanning])
+  
+  const loadVerifiedEntries = async () => {
+    setLoadingVerifiedEntries(true)
+    try {
+      const response = await fetch(`/api/public/event-survey/${campaign.id}/verified-entries`)
+      const result = await response.json()
+      
+      if (result.success) {
+        setVerifiedEntries(result.entries || [])
+        setTotalRegistered(result.total_registered || 0)
+        setTotalVerified(result.total_verified || 0)
+      }
+    } catch (error) {
+      console.error('체크인 목록 로드 오류:', error)
+    } finally {
+      setLoadingVerifiedEntries(false)
+    }
+  }
+  
+  const performScan = async (code: string) => {
+    if (!code.trim()) {
+      setScanResult({ error: 'QR 코드를 입력해주세요.' })
+      return
+    }
+    
+    setScanning(true)
+    setScanResult(null)
+    
+    try {
+      const response = await fetch(`/api/public/event-survey/${campaign.id}/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code6: code.trim() }),
+      })
+      
+      const result = await response.json()
+      
+      if (result.found && result.completed) {
+        setScanResult({
+          success: true,
+          survey_no: result.survey_no,
+          name: result.name,
+          company: result.company,
+          isNewVerification: result.isNewVerification,
+          message: result.isNewVerification ? '체크인 완료!' : result.message || '이미 체크인되었습니다.',
+        })
+        // QR 코드 입력 필드 초기화
+        setQrCode('')
+        // 체크인 목록 새로고침
+        await loadVerifiedEntries()
+        
+        // 성공 후 다음 스캔 대기 (2초 후 입력 필드에 포커스)
+        setTimeout(() => {
+          if (isScanningMode && qrInputRef.current) {
+            qrInputRef.current.focus()
+          }
+        }, 2000)
+      } else {
+        setScanResult({
+          success: false,
+          error: result.message || 'QR 코드를 찾을 수 없습니다.',
+        })
+        // 실패 후 입력 필드 초기화 및 포커스
+        setTimeout(() => {
+          setQrCode('')
+          if (isScanningMode && qrInputRef.current) {
+            qrInputRef.current.focus()
+          }
+        }, 2000)
+      }
+    } catch (error: any) {
+      console.error('QR 스캔 오류:', error)
+      setScanResult({
+        success: false,
+        error: 'QR 스캔 중 오류가 발생했습니다. 다시 시도해주세요.',
+      })
+      // 에러 후 입력 필드 초기화 및 포커스
+      setTimeout(() => {
+        setQrCode('')
+        if (isScanningMode && qrInputRef.current) {
+          qrInputRef.current.focus()
+        }
+      }, 2000)
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const handleQRScan = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await performScan(qrCode)
+  }
   
   const loadQuestionStats = async () => {
     if (!campaign.form_id) return
@@ -1129,9 +1282,211 @@ export default function PublicDashboardClient({ campaign }: PublicDashboardClien
           )}
         </div>
         
-        {/* 통계 카드 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-xl shadow-lg p-6">
+        {/* 탭 네비게이션 */}
+        <div className="bg-white rounded-xl shadow-lg mb-4 sm:mb-6 md:mb-8">
+          <div className="border-b border-gray-200">
+            <nav className="flex -mb-px">
+              <button
+                onClick={() => setActiveTab('stats')}
+                className={`px-4 sm:px-6 py-3 sm:py-4 text-sm sm:text-base font-medium border-b-2 transition-colors ${
+                  activeTab === 'stats'
+                    ? 'border-[#00B388] text-[#00B388]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                통계
+              </button>
+              {publicReports.length > 0 && (
+                <button
+                  onClick={() => setActiveTab('reports')}
+                  className={`px-4 sm:px-6 py-3 sm:py-4 text-sm sm:text-base font-medium border-b-2 transition-colors ${
+                    activeTab === 'reports'
+                      ? 'border-[#00B388] text-[#00B388]'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  AI 분석 보고서
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setActiveTab('qr-check')
+                  loadVerifiedEntries()
+                }}
+                className={`px-4 sm:px-6 py-3 sm:py-4 text-sm sm:text-base font-medium border-b-2 transition-colors ${
+                  activeTab === 'qr-check'
+                    ? 'border-[#00B388] text-[#00B388]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                QR 체크인
+              </button>
+            </nav>
+          </div>
+        </div>
+        
+        {/* QR 체크인 탭 */}
+        {activeTab === 'qr-check' && (
+          <div className="space-y-6">
+            {/* 통계 카드 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <div className="text-sm text-gray-600 mb-1">전체 등록자</div>
+                <div className="text-3xl font-bold text-gray-900">{totalRegistered}</div>
+              </div>
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <div className="text-sm text-gray-600 mb-1">QR 체크인</div>
+                <div className="text-3xl font-bold text-[#00B388]">{totalVerified}</div>
+                {totalRegistered > 0 && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    ({((totalVerified / totalRegistered) * 100).toFixed(1)}%)
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* 스캔받기 버튼 */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">QR 코드 스캔</h3>
+              <button
+                onClick={() => {
+                  setIsScanningMode(true)
+                  setQrCode('')
+                  setScanResult(null)
+                }}
+                className="w-full px-6 py-4 bg-[#00B388] text-white rounded-lg font-bold text-lg hover:bg-[#008f6d] transition-colors shadow-md"
+              >
+                스캔받기
+              </button>
+            </div>
+            
+            {/* 체크인 목록 */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">체크인 목록</h3>
+              {loadingVerifiedEntries ? (
+                <div className="text-center py-8 text-gray-500">로딩 중...</div>
+              ) : verifiedEntries.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">아직 체크인된 참여자가 없습니다.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">순번</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">이름</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">회사</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">체크인 시간</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {verifiedEntries.map((entry, index) => (
+                        <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-3 px-4 text-sm text-gray-900 font-medium">{entry.survey_no}</td>
+                          <td className="py-3 px-4 text-sm text-gray-900">{entry.name}</td>
+                          <td className="py-3 px-4 text-sm text-gray-600">{entry.company || '-'}</td>
+                          <td className="py-3 px-4 text-sm text-gray-600">
+                            {entry.verified_at
+                              ? new Date(entry.verified_at).toLocaleString('ko-KR', {
+                                  year: 'numeric',
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* QR 스캔 모드 팝업 */}
+        {isScanningMode && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 sm:p-8">
+              <div className="text-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">QR 스캔 모드</h2>
+                <p className="text-gray-600">스캔 대기 중입니다...</p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <input
+                    ref={qrInputRef}
+                    type="text"
+                    value={qrCode}
+                    onChange={(e) => setQrCode(e.target.value)}
+                    placeholder="QR 코드를 스캔하세요"
+                    className="w-full px-4 py-4 border-2 border-[#00B388] rounded-lg focus:border-[#008f6d] outline-none transition-colors text-lg text-center font-mono tracking-wider"
+                    disabled={scanning}
+                    autoFocus
+                  />
+                </div>
+
+                {scanning && (
+                  <div className="text-center py-4">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#00B388]"></div>
+                    <p className="mt-2 text-gray-600">스캔 중...</p>
+                  </div>
+                )}
+
+                {scanResult && !scanning && (
+                  <div className={`p-4 rounded-lg ${
+                    scanResult.success
+                      ? scanResult.isNewVerification
+                        ? 'bg-green-50 border-2 border-green-400'
+                        : 'bg-blue-50 border-2 border-blue-400'
+                      : 'bg-red-50 border-2 border-red-400'
+                  }`}>
+                    {scanResult.success ? (
+                      <div className="text-center">
+                        <p className={`text-lg font-bold mb-3 ${
+                          scanResult.isNewVerification ? 'text-green-800' : 'text-blue-800'
+                        }`}>
+                          {scanResult.message}
+                        </p>
+                        <div className="text-sm text-gray-700 space-y-1">
+                          <p><span className="font-semibold">순번:</span> {scanResult.survey_no}</p>
+                          <p><span className="font-semibold">이름:</span> {scanResult.name}</p>
+                          {scanResult.company && (
+                            <p><span className="font-semibold">회사:</span> {scanResult.company}</p>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-center text-red-800 font-semibold">{scanResult.error}</p>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={() => {
+                      setIsScanningMode(false)
+                      setQrCode('')
+                      setScanResult(null)
+                    }}
+                    className="flex-1 px-4 py-3 bg-gray-200 text-gray-800 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* 통계 탭 */}
+        {activeTab === 'stats' && (
+          <div>
+            {/* 통계 카드 */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="bg-white rounded-xl shadow-lg p-6">
             <div className="text-sm text-gray-600 mb-1">총 참여자</div>
             <div className="text-3xl font-bold text-gray-900">{campaign.stats?.total_completed || 0}</div>
           </div>
@@ -1216,9 +1571,11 @@ export default function PublicDashboardClient({ campaign }: PublicDashboardClien
             )}
           </div>
         )}
+          </div>
+        )}
 
-        {/* AI 분석 보고서 섹션 */}
-        {publicReports.length > 0 && (
+        {/* AI 분석 보고서 탭 */}
+        {activeTab === 'reports' && publicReports.length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-3 sm:p-4 md:p-6 mb-4 sm:mb-6 md:mb-8">
             <div className="flex items-center justify-between mb-3 sm:mb-4">
               <h3 className="text-lg font-semibold text-gray-900">AI 분석 보고서</h3>

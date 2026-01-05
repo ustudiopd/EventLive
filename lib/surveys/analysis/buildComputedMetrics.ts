@@ -597,9 +597,7 @@ export function buildEvidenceCatalog(
       source: 'crosstab',
       notes: highlight.highlight,
     })
-  })
-
-  // 3. 리드 스코어 분포 (leadSignals)
+  })  // 3. 리드 스코어 분포 (leadSignals)
   leadSignals.distribution.forEach((dist) => {
     if (dist.count > 0) {
       evidence.push({

@@ -261,9 +261,7 @@ export const ActionItemSchema = z.object({
   targetCount: z.string().min(3), // "17명", "8건" 등
   kpi: z.string().min(5), // "미팅 전환율 40%", "PoC 신청 5건" 등
   steps: z.array(z.string().min(3)).min(1),
-})
-
-/**
+})/**
  * Action Board
  * 시간대별 실행 계획
  */
