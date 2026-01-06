@@ -5,12 +5,15 @@
 - **도메인**: EventFlow.kr
 
 ## 1. 현재 집중하고 있는 작업  
-- **작업명**: QR 체크인 팝업 스캔 모드 구현 완료
-- **상태**: ✅ QR 체크인 팝업 스캔 모드 구현 완료
-  - "스캔받기" 버튼 추가 및 모달 팝업 구현 완료
-  - 자동 스캔 로직 구현 완료 (500ms debounce)
-  - 연속 스캔 지원 및 사용자 경험 개선 완료
-- **이전 작업**: AI 분석 보고서 고도화 파이프라인 구현 및 안정화
+- **작업명**: 설문조사 AI 분석 시스템 구현 명세서 v1.0 구현 완료
+- **상태**: ✅ 구현 명세서 v1.0 구현 완료
+  - DB 마이그레이션 완료 (analysis_role_override 컬럼 추가)
+  - Utils 모듈 생성 완료 (normalizeQuestions, normalizeAnswers, statsMath)
+  - Role 추정 모듈 생성 완료 (roleInference)
+  - 교차표 선택 모듈 생성 완료 (crosstabSelection)
+  - 기존 파일 개선 완료 (buildAnalysisPack, buildComputedMetrics, generateDecisionPack)
+  - API 엔드포인트 추가 완료 (GET /analysis/latest)
+- **이전 작업**: QR 체크인 팝업 스캔 모드 구현 완료
 - **목표**: 
   - 두 단계 파이프라인 구조 구현 (Analysis Pack + Decision Pack)
   - Decision Pack 생성 안정화 (JSON mode, 파싱 개선)

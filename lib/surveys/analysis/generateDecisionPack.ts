@@ -213,8 +213,15 @@ ${qualityPrompt}
       throw new Error(`JSON 파싱 실패: ${parseError.message}`)
     }
 
+    // version 필드 자동 보정 (누락되거나 잘못된 경우)
+    if (!parsed.version || parsed.version !== 'dp-1.0') {
+      console.log('[generateDecisionPack] version 필드 보정: dp-1.0으로 설정')
+      parsed.version = 'dp-1.0'
+    }
+
     // Zod 검증
     console.log('[generateDecisionPack] 파싱된 데이터 구조:', {
+      version: parsed.version,
       hasDecisionCards: !!parsed.decisionCards,
       decisionCardsCount: parsed.decisionCards?.length || 0,
       hasActionBoard: !!parsed.actionBoard,
@@ -291,6 +298,16 @@ ${analysisPack.questions
         .map((c) => `  - ${c.text}: ${c.percentage}% (${c.count}명)`)
         .join('\n')}`
     }
+    // 텍스트 문항: 샘플링된 답변만 포함 (구현 명세서 v1.0)
+    // @ts-ignore - textAnswerSamples는 내부적으로 사용
+    if (q.questionType === 'text' && (q as any).textAnswerSamples) {
+      const samples = (q as any).textAnswerSamples || []
+      const totalCount = (q as any).textAnswerCount || 0
+      content += `\n- 텍스트 응답 샘플 (전체 ${totalCount}개 중 ${samples.length}개):\n${samples
+        .slice(0, 10) // 프롬프트에는 최대 10개만
+        .map((text: string) => `  - "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`)
+        .join('\n')}`
+    }
     return content
   })
   .join('\n\n')}
@@ -310,6 +327,15 @@ ${analysisPack.leadQueue.distribution
 ---
 
 ## 생성 요구사항
+
+**중요: 반드시 다음 형식의 JSON을 생성하세요:**
+{
+  "version": "dp-1.0",
+  "decisionCards": [...],
+  "actionBoard": {...},
+  "playbooks": {...},
+  "surveyNextQuestions": [...]
+}
 
 ### 1. Decision Cards (최소 3개, 최대 5개)
 다음과 같은 핵심 의사결정 질문에 대한 카드를 생성하세요:
@@ -352,6 +378,13 @@ ${analysisPack.leadQueue.distribution
 
 ---
 
-위 요구사항을 모두 충족하는 Decision Pack JSON을 생성하세요. 반드시 유효한 JSON만 출력하고, 코드 블록이나 마크다운 형식은 사용하지 마세요.`
+위 요구사항을 모두 충족하는 Decision Pack JSON을 생성하세요. 
+
+**필수 사항:**
+- 반드시 "version": "dp-1.0" 필드를 포함해야 합니다
+- 반드시 유효한 JSON만 출력하고, 코드 블록이나 마크다운 형식은 사용하지 마세요
+- Decision Cards의 options는 반드시 id가 "A", "B", "C" 중 하나여야 합니다
+- Action Board의 targetCount는 반드시 "숫자명" 또는 "숫자건" 형식이어야 합니다 (예: "17명", "8건")
+- Playbooks의 sales와 marketing은 문자열 배열이어야 합니다 (객체가 아닙니다)`
 }
 

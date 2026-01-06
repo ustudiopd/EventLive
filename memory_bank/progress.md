@@ -831,6 +831,48 @@
   - JSX 주석 위치 수정
   - Decision Cards options 렌더링 빈 줄 문제 수정
 
+## [2026-01-06] 설문조사 AI 분석 시스템 구현 명세서 v1.0 구현 완료
+- ✅ DB 마이그레이션 (`047_add_analysis_role_override_to_form_questions.sql`)
+  - `form_questions` 테이블에 `analysis_role_override` 컬럼 추가
+  - 역할 수동 지정 지원 (timeframe/project_type/followup_intent/other)
+  - 인덱스 및 체크 제약조건 포함
+- ✅ Utils 모듈 생성 (`lib/surveys/analysis/utils/`)
+  - `normalizeQuestions.ts`: options 파싱/정규화 (문자열 JSON, JSONB, 배열, 객체 지원)
+  - `normalizeAnswers.ts`: choice_ids/text_answer 정규화
+  - `statsMath.ts`: 안전한 통계 계산 (백분율, lift, chi-square, Cramér's V 등)
+- ✅ Role 추정 모듈 생성 (`lib/surveys/analysis/roleInference.ts`)
+  - Heuristic 규칙 기반 자동 추정 (키워드 매칭)
+  - `analysis_role_override` 컬럼 기반 수동 override 지원
+  - 역할 소스 추적 (override/heuristic/unknown)
+- ✅ 교차표 선택 모듈 생성 (`lib/surveys/analysis/crosstabSelection.ts`)
+  - 분석 가치 점수 계산 (lift, chi-square 기반)
+  - 역할 기반 우선순위 부여
+  - 향후 확장 가능한 구조
+- ✅ `buildAnalysisPack.ts` 개선
+  - 정규화 모듈 통합 (normalizeQuestions, normalizeAnswers)
+  - Role 추정 모듈 통합 (roleInference)
+  - 안전한 통계 계산 사용 (statsMath)
+  - 텍스트 답변 샘플링 추가 (최대 50개, 프롬프트에는 10개)
+  - `analysis_role_override` 컬럼 조회 및 적용
+- ✅ `buildComputedMetrics.ts` 개선
+  - 교차표 선택 전략 확장 준비 (useExtendedSelection 파라미터 추가)
+- ✅ `generateDecisionPack.ts` 개선
+  - 텍스트 답변 샘플링 반영 (프롬프트에 최대 10개만 포함)
+- ✅ `mergeAnalysisAndDecisionPack.ts` 검증
+  - 숫자 교정 로직 이미 구현됨 (검증 완료)
+- ✅ API 엔드포인트 추가 (`GET /api/event-survey/campaigns/[campaignId]/analysis/latest`)
+  - 최신 리포트 조회 API
+  - lens 파라미터 지원 (general/sales/marketing)
+  - 권한 확인 포함
+- ✅ 주요 개선 사항
+  - 문항 동적 처리 강화: options 파싱 안정화, 답변 정규화
+  - Role 추정 개선: 수동 override 지원으로 정확도 향상
+  - 성능 최적화: 텍스트 답변 샘플링으로 프롬프트 토큰 절감
+  - 확장성: 교차표 선택 전략 확장 준비, 모듈화로 유지보수성 향상
+- ✅ 구현 명세서 문서화
+  - `docs/설문조사_AI_분석_시스템_구현명세서.md` 작성 완료
+  - `docs/설문조사_AI_분석_시스템_명세서.md` 업데이트 (현재 구현과 향후 계획 분리)
+
 ## [2025-01-XX] QR 체크인 팝업 스캔 모드 구현 완료
 - ✅ QR 체크인 팝업 스캔 모드 구현 (`app/event/dashboard/[code]/PublicDashboardClient.tsx`)
   - "스캔받기" 버튼 추가 (QR 체크인 탭)

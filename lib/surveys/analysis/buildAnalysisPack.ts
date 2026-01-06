@@ -2,6 +2,11 @@
  * Analysis Pack 생성 함수
  * 서버에서 생성하는 기초 분석팩 (Deterministic)
  * 문항이 바뀌어도 동일한 구조로 생성
+ * 
+ * 구현 명세서 v1.0에 따른 개선:
+ * - 정규화 모듈 사용 (normalizeQuestions, normalizeAnswers)
+ * - Role 추정 모듈 사용 (roleInference)
+ * - 안전한 통계 계산 (statsMath)
  */
 
 import { createAdminSupabase } from '@/lib/supabase/admin'
@@ -13,6 +18,10 @@ import {
   buildEvidenceCatalog,
 } from './buildComputedMetrics'
 import type { AnalysisPack } from './analysisPackSchema'
+import { normalizeQuestions, normalizeQuestion } from './utils/normalizeQuestions'
+import { normalizeAnswers } from './utils/normalizeAnswers'
+import { inferQuestionRoles, type QuestionWithRole } from './roleInference'
+import { safePercentage } from './utils/statsMath'
 
 interface Question {
   id: string
@@ -21,6 +30,7 @@ interface Question {
   type: 'single' | 'multiple' | 'text'
   options?: any[]
   role?: 'timeframe' | 'project_type' | 'followup_intent' | 'other'
+  analysis_role_override?: string | null
 }
 
 interface Answer {
@@ -74,10 +84,10 @@ export async function buildAnalysisPack(
     throw new Error(`Campaign has no form assigned: ${campaignId}`)
   }
 
-  // 2. 문항 조회 (기존 파이프라인과 동일하게 select('*') 사용)
+  // 2. 문항 조회 (analysis_role_override 포함)
   const { data: questions, error: questionsError } = await admin
     .from('form_questions')
-    .select('*')
+    .select('*, analysis_role_override')
     .eq('form_id', campaignData.form_id)
     .order('order_no', { ascending: true })
 
@@ -101,52 +111,27 @@ export async function buildAnalysisPack(
     throw new Error(`No questions found for campaign: ${campaignId} (form_id: ${campaignData.form_id})`)
   }
 
-  // 2-1. 문항 역할 자동 추정 (기존 파이프라인 로직과 동일)
-  const questionsWithRole: Question[] = questions.map((q: any) => {
-    const parsedOptions = q.options
-      ? typeof q.options === 'string'
-        ? JSON.parse(q.options)
-        : q.options
-      : []
-
-    // 문항 역할 자동 추정 (옵션명 기반)
-    let role: 'timeframe' | 'project_type' | 'followup_intent' | 'other' = 'other'
-    const questionText = (q.body || '').toLowerCase()
-    const optionsText = JSON.stringify(parsedOptions).toLowerCase()
-
-    if (
-      questionText.includes('언제') ||
-      questionText.includes('계획') ||
-      optionsText.includes('1주') ||
-      optionsText.includes('1개월')
-    ) {
-      role = 'timeframe'
-    } else if (
-      questionText.includes('프로젝트') ||
-      questionText.includes('종류') ||
-      optionsText.includes('데이터센터') ||
-      optionsText.includes('네트워크')
-    ) {
-      role = 'project_type'
-    } else if (
-      questionText.includes('의향') ||
-      questionText.includes('요청') ||
-      optionsText.includes('방문') ||
-      optionsText.includes('미팅') ||
-      optionsText.includes('관심 없음')
-    ) {
-      role = 'followup_intent'
-    }
-
-    return {
+  // 2-1. 문항 정규화 및 역할 추정 (구현 명세서 v1.0)
+  const normalizedQuestions = normalizeQuestions(questions)
+  const questionsWithRoleData = inferQuestionRoles(
+    questions.map((q: any) => ({
       id: q.id,
-      order_no: q.order_no,
       body: q.body,
       type: q.type,
-      options: parsedOptions,
-      role,
-    }
-  })
+      options: normalizedQuestions.find((nq) => nq.id === q.id)?.options,
+      analysis_role_override: q.analysis_role_override,
+    }))
+  )
+
+  // 기존 인터페이스와 호환되도록 변환
+  const questionsWithRole: Question[] = questionsWithRoleData.map((qwr) => ({
+    id: qwr.id,
+    order_no: questions.find((q: any) => q.id === qwr.id)?.order_no || 0,
+    body: qwr.body,
+    type: qwr.type,
+    options: qwr.options,
+    role: qwr.role,
+  }))
 
   // 3. 응답 조회 (event_survey_entries를 통해)
   const { data: entries, error: entriesError } = await admin
@@ -185,57 +170,68 @@ export async function buildAnalysisPack(
     throw new Error(`Failed to fetch answers: ${answersError.message}`)
   }
 
-  // answers가 null일 수 있으므로 안전하게 처리
-  const answersArray: Answer[] = answers || []
+  // 4-1. 답변 정규화 (구현 명세서 v1.0)
+  const normalizedAnswers = normalizeAnswers(answers || [])
 
-  // 5. 문항별 통계 계산 (기존 파이프라인과 동일한 로직)
+  // 기존 인터페이스와 호환되도록 변환
+  const answersArray: Answer[] = normalizedAnswers.map((na) => ({
+    submission_id: na.submissionId,
+    question_id: na.questionId,
+    choice_ids: na.choiceIds.length > 0 ? na.choiceIds : undefined,
+    text_answer: na.textAnswer || undefined,
+  }))
+
+  // 5. 문항별 통계 계산 (정규화된 데이터 사용)
   const questionStats: any[] = []
-  for (const question of questions) {
-    const parsedOptions = question.options
-      ? typeof question.options === 'string'
-        ? JSON.parse(question.options)
-        : question.options
-      : []
-
-    const qWithRole = questionsWithRole.find((q) => q.id === question.id)
+  for (const normalizedQ of normalizedQuestions) {
+    const qWithRole = questionsWithRoleData.find((q) => q.id === normalizedQ.id)
     const role = qWithRole?.role || 'other'
 
-    const questionAnswers = answersArray.filter((a) => a.question_id === question.id)
+    const questionAnswers = normalizedAnswers.filter((a) => a.questionId === normalizedQ.id)
 
     const stats: any = {
-      questionId: question.id,
-      orderNo: question.order_no,
-      questionBody: question.body,
-      questionType: question.type,
+      questionId: normalizedQ.id,
+      orderNo: normalizedQ.orderNo,
+      questionBody: normalizedQ.body,
+      questionType: normalizedQ.type,
       totalAnswers: questionAnswers.length,
-      options: parsedOptions,
+      options: normalizedQ.options,
       choiceDistribution: {},
       textAnswers: [],
       role,
     }
 
-    if (question.type === 'text') {
-      stats.textAnswers = questionAnswers
-        .map((a: any) => a.text_answer || '')
-        .filter(Boolean)
-    } else if (question.type === 'single' || question.type === 'multiple') {
+    if (normalizedQ.type === 'text') {
+      // 텍스트 답변: 빈 값 제거 후 배열
+      // 구현 명세서 v1.0: 전체를 저장하되, 프롬프트에는 샘플링(최대 50개)
+      const allTextAnswers = questionAnswers
+        .map((a) => a.textAnswer)
+        .filter((text): text is string => text !== null && text.trim().length > 0)
+      
+      stats.textAnswers = allTextAnswers
+      stats.textAnswerCount = allTextAnswers.length
+      // 샘플링: 최대 50개 (랜덤 또는 최근순)
+      stats.textAnswerSamples = allTextAnswers
+        .sort(() => Math.random() - 0.5) // 랜덤 샘플링
+        .slice(0, 50)
+    } else if (normalizedQ.type === 'single' || normalizedQ.type === 'multiple') {
+      // 선택형: 분포 계산
       const distribution: Record<string, number> = {}
-      questionAnswers.forEach((answer: any) => {
-        const choiceIds = answer.choice_ids || []
-        choiceIds.forEach((choiceId: string) => {
+      questionAnswers.forEach((answer) => {
+        answer.choiceIds.forEach((choiceId: string) => {
           distribution[choiceId] = (distribution[choiceId] || 0) + 1
         })
       })
       stats.choiceDistribution = distribution
 
-      // Top choices 계산 (기존 파이프라인과 동일)
+      // Top choices 계산 (안전한 백분율 계산 사용)
       const topChoices = Object.entries(distribution)
         .map(([choiceId, count]) => {
-          const option = parsedOptions.find((opt: any) => (opt.id || opt) === choiceId)
+          const option = normalizedQ.options.find((opt) => opt.id === choiceId)
           return {
-            text: option ? option.text || option : choiceId,
+            text: option ? option.text : choiceId,
             count,
-            percentage: parseFloat(((count / (questionAnswers.length || 1)) * 100).toFixed(1)),
+            percentage: safePercentage(count, questionAnswers.length || 1),
           }
         })
         .sort((a, b) => b.count - a.count)
@@ -243,7 +239,7 @@ export async function buildAnalysisPack(
 
       stats.topChoices = topChoices
       stats.analysis = {
-        summary_chart: question.order_no <= 6,
+        summary_chart: normalizedQ.orderNo <= 6,
       }
     }
 

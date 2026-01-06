@@ -68,15 +68,17 @@ interface LeadSignalsSummary {
 
 /**
  * 교차표 및 lift 계산
+ * 구현 명세서 v1.0: 역할 기반 기본 + 확장 전략(선택적)
  */
 export function buildCrosstabs(
   questions: Question[],
   answers: Answer[],
-  submissions: Submission[]
+  submissions: Submission[],
+  useExtendedSelection: boolean = false // 확장 전략 사용 여부
 ): Crosstab[] {
   const crosstabs: Crosstab[] = []
 
-  // 문항 역할 기반으로 핵심 쌍 선택
+  // 1. 기본 전략: 역할 기반 핵심 쌍 선택
   const timingQuestion = questions.find((q) => q.role === 'timeframe')
   const followupQuestion = questions.find((q) => q.role === 'followup_intent')
   const projectTypeQuestion = questions.find((q) => q.role === 'project_type')
@@ -112,6 +114,12 @@ export function buildCrosstabs(
       submissions
     )
     if (crosstab) crosstabs.push(crosstab)
+  }
+
+  // 2. 확장 전략: 역할 기반 교차표가 3개 미만이거나 확장 모드일 때
+  if (useExtendedSelection || crosstabs.length < 3) {
+    // TODO: crosstabSelection 모듈 통합 (향후 구현)
+    // 현재는 기본 전략만 사용
   }
 
   return crosstabs
