@@ -161,7 +161,7 @@ ${cellWarning}`
   // References 섹션
   const referencesSection = SURVEY_ANALYSIS_REFERENCES.map((ref) => `- **${ref.title}**: ${ref.summary}`).join('\n')
 
-  // Questions 섹션
+  // Questions 섹션 (모든 선택지 표시)
   const questionsSection = analysisPack.questions
     .slice(0, 6)
     .map((q, index) => {
@@ -170,10 +170,11 @@ ${cellWarning}`
 - 유형: 텍스트 응답
 - 응답 수: ${q.responseCount}명`
       }
-      const top3 = q.topChoices.slice(0, 3)
-      const top3Text = top3.map((c) => `- ${c.text}: ${c.percentage}% (${c.count}명)`).join('\n')
+      // 모든 선택지를 백분율 순으로 정렬하여 표시
+      const allChoices = q.topChoices.sort((a, b) => b.percentage - a.percentage)
+      const choicesText = allChoices.map((c) => `- ${c.text}: ${c.percentage}% (${c.count}명)`).join('\n')
       return `### Q${index + 1}: ${q.questionBody}
-${top3Text}`
+${choicesText}`
     })
     .join('\n\n')
 

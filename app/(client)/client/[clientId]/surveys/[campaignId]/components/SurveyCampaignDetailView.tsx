@@ -7,6 +7,8 @@ import FormManagementTab from './tabs/FormManagementTab'
 import PublicPageSettingsTab from './tabs/PublicPageSettingsTab'
 import ParticipantsTab from './tabs/ParticipantsTab'
 import SettingsTab from './tabs/SettingsTab'
+import AnalysisGuidelineTab from './tabs/AnalysisGuidelineTab'
+import AnalysisReportSection from './tabs/AnalysisReportSection'
 
 interface SurveyCampaignDetailViewProps {
   campaign: any
@@ -14,7 +16,7 @@ interface SurveyCampaignDetailViewProps {
 }
 
 export default function SurveyCampaignDetailView({ campaign, clientId }: SurveyCampaignDetailViewProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'form' | 'publicSettings' | 'participants' | 'settings'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'form' | 'publicSettings' | 'participants' | 'settings' | 'guidelines' | 'analysis'>('overview')
   const [campaignData, setCampaignData] = useState(campaign)
   
   const handleCampaignUpdate = (updatedCampaign: any) => {
@@ -105,6 +107,30 @@ export default function SurveyCampaignDetailView({ campaign, clientId }: SurveyC
               <span className="hidden lg:inline text-sm font-medium whitespace-nowrap">참여자 관리</span>
             </button>
             <button
+              onClick={() => setActiveTab('analysis')}
+              title="AI 분석"
+              className={`px-3 sm:px-6 py-3 sm:py-4 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center gap-2 ${
+                activeTab === 'analysis'
+                  ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <span className="text-xl sm:text-2xl">🤖</span>
+              <span className="hidden lg:inline text-sm font-medium whitespace-nowrap">AI 분석</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('guidelines')}
+              title="분석 지침"
+              className={`px-3 sm:px-6 py-3 sm:py-4 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center gap-2 ${
+                activeTab === 'guidelines'
+                  ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <span className="text-xl sm:text-2xl">📐</span>
+              <span className="hidden lg:inline text-sm font-medium whitespace-nowrap">분석 지침</span>
+            </button>
+            <button
               onClick={() => setActiveTab('settings')}
               title="설정"
               className={`px-3 sm:px-6 py-3 sm:py-4 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center gap-2 ${
@@ -155,6 +181,20 @@ export default function SurveyCampaignDetailView({ campaign, clientId }: SurveyC
             <div>
               <h2 className="text-xl font-semibold mb-4">참여자 관리</h2>
               <ParticipantsTab campaignId={campaignData.id} entries={campaignData.entries || []} />
+            </div>
+          )}
+          
+          {activeTab === 'analysis' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">AI 분석 보고서</h2>
+              <AnalysisReportSection campaignId={campaignData.id} />
+            </div>
+          )}
+          
+          {activeTab === 'guidelines' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">분석 지침 관리</h2>
+              <AnalysisGuidelineTab campaignId={campaignData.id} />
             </div>
           )}
           

@@ -18,7 +18,6 @@ import {
   Pie,
   Cell,
 } from 'recharts'
-import AnalysisReportSection from './AnalysisReportSection'
 
 interface OverviewTabProps {
   campaign: any
@@ -674,10 +673,6 @@ export default function OverviewTab({ campaign, onCampaignUpdate }: OverviewTabP
         )}
       </div>
 
-      {/* AI 분석 보고서 섹션 */}
-      <div className="mt-8">
-        <AnalysisReportSection campaignId={campaign.id} />
-      </div>
     </div>
   )
 }

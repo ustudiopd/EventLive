@@ -29,7 +29,7 @@ interface Question {
   body: string
   type: 'single' | 'multiple' | 'text'
   options?: any[]
-  role?: 'timeframe' | 'project_type' | 'followup_intent' | 'other'
+  role?: 'timeframe' | 'project_type' | 'followup_intent' | 'budget_status' | 'authority_level' | 'other'
   analysis_role_override?: string | null
 }
 
@@ -286,7 +286,8 @@ export async function buildAnalysisPack(
       })
       stats.choiceDistribution = distribution
 
-      // Top choices 계산 (안전한 백분율 계산 사용)
+      // 모든 선택지 계산 (안전한 백분율 계산 사용)
+      // 모든 선택지를 포함하여 저장 (상위 5개 제한 제거)
       const topChoices = Object.entries(distribution)
         .map(([choiceId, count]) => {
           const option = normalizedQ.options.find((opt) => opt.id === choiceId)
@@ -297,7 +298,7 @@ export async function buildAnalysisPack(
           }
         })
         .sort((a, b) => b.count - a.count)
-        .slice(0, 5)
+        // 모든 선택지 포함 (제한 없음)
 
       stats.topChoices = topChoices
       stats.analysis = {

@@ -11,7 +11,7 @@ interface Question {
   body: string
   type: 'single' | 'multiple' | 'text'
   options?: any[]
-  role?: 'timeframe' | 'project_type' | 'followup_intent' | 'other'
+  role?: 'timeframe' | 'project_type' | 'followup_intent' | 'budget_status' | 'authority_level' | 'other'
 }
 
 interface Answer {
@@ -55,6 +55,8 @@ interface LeadSignal {
   timingScore: number
   followupScore: number
   projectTypeScore: number
+  budgetScore: number
+  authorityScore: number
   recommendedNextStep: string
   reasons: string[]
 }
@@ -82,6 +84,8 @@ export function buildCrosstabs(
   const timingQuestion = questions.find((q) => q.role === 'timeframe')
   const followupQuestion = questions.find((q) => q.role === 'followup_intent')
   const projectTypeQuestion = questions.find((q) => q.role === 'project_type')
+  const budgetQuestion = questions.find((q) => q.role === 'budget_status')
+  const authorityQuestion = questions.find((q) => q.role === 'authority_level')
 
   // Timing x Followup 교차표
   if (timingQuestion && followupQuestion) {
@@ -110,6 +114,50 @@ export function buildCrosstabs(
     const crosstab = calculateCrosstab(
       timingQuestion,
       projectTypeQuestion,
+      answers,
+      submissions
+    )
+    if (crosstab) crosstabs.push(crosstab)
+  }
+
+  // Budget x Timeline 교차표
+  if (budgetQuestion && timingQuestion) {
+    const crosstab = calculateCrosstab(
+      budgetQuestion,
+      timingQuestion,
+      answers,
+      submissions
+    )
+    if (crosstab) crosstabs.push(crosstab)
+  }
+
+  // Authority x Engagement 교차표
+  if (authorityQuestion && followupQuestion) {
+    const crosstab = calculateCrosstab(
+      authorityQuestion,
+      followupQuestion,
+      answers,
+      submissions
+    )
+    if (crosstab) crosstabs.push(crosstab)
+  }
+
+  // Budget x Authority 교차표
+  if (budgetQuestion && authorityQuestion) {
+    const crosstab = calculateCrosstab(
+      budgetQuestion,
+      authorityQuestion,
+      answers,
+      submissions
+    )
+    if (crosstab) crosstabs.push(crosstab)
+  }
+
+  // Authority x Timeline 교차표
+  if (authorityQuestion && timingQuestion) {
+    const crosstab = calculateCrosstab(
+      authorityQuestion,
+      timingQuestion,
       answers,
       submissions
     )
@@ -266,6 +314,8 @@ export function buildLeadSignals(
   const timingQuestion = questions.find((q) => q.role === 'timeframe')
   const followupQuestion = questions.find((q) => q.role === 'followup_intent')
   const projectTypeQuestion = questions.find((q) => q.role === 'project_type')
+  const budgetQuestion = questions.find((q) => q.role === 'budget_status')
+  const authorityQuestion = questions.find((q) => q.role === 'authority_level')
 
   const leadQueue: LeadSignal[] = []
   const channelPreference: Record<string, number> = {}
@@ -281,6 +331,12 @@ export function buildLeadSignals(
     const projectTypeAnswer = answers.find(
       (a) => a.submission_id === submission.id && a.question_id === projectTypeQuestion?.id
     )
+    const budgetAnswer = answers.find(
+      (a) => a.submission_id === submission.id && a.question_id === budgetQuestion?.id
+    )
+    const authorityAnswer = answers.find(
+      (a) => a.submission_id === submission.id && a.question_id === authorityQuestion?.id
+    )
 
     const timingScore = calculateTimingScore(timingAnswer, timingQuestion)
     const followupScore = calculateFollowupScore(followupAnswer, followupQuestion)
@@ -288,10 +344,12 @@ export function buildLeadSignals(
       projectTypeAnswer,
       projectTypeQuestion
     )
+    const budgetScore = calculateBudgetScore(budgetAnswer, budgetQuestion)
+    const authorityScore = calculateAuthorityScore(authorityAnswer, authorityQuestion)
 
     const leadScore = Math.max(
       0,
-      Math.min(100, timingScore + followupScore + projectTypeScore)
+      Math.min(100, timingScore + followupScore + projectTypeScore + budgetScore + authorityScore)
     )
 
     const tier = getTierFromScore(leadScore)
@@ -300,6 +358,8 @@ export function buildLeadSignals(
     if (timingScore >= 25) reasons.push('단기 프로젝트 계획')
     if (followupScore >= 15) reasons.push('높은 접촉 의향')
     if (projectTypeScore >= 12) reasons.push('핵심 프로젝트 유형')
+    if (budgetScore >= 15) reasons.push('예산 확보')
+    if (authorityScore >= 15) reasons.push('의사결정 권한 보유')
 
     const recommendedNextStep = getRecommendedNextStep(tier, followupAnswer, followupQuestion)
 
@@ -310,6 +370,8 @@ export function buildLeadSignals(
       timingScore,
       followupScore,
       projectTypeScore,
+      budgetScore,
+      authorityScore,
       recommendedNextStep,
       reasons,
     })
@@ -396,6 +458,36 @@ function calculateProjectTypeScore(
   if (key.includes('라우팅') || key.includes('SD-WAN')) return 10
   if (key.includes('캠퍼스') || key.includes('브랜치')) return 8
   if (key.includes('해당') && key.includes('없')) return 0
+
+  return 0
+}
+
+function calculateBudgetScore(
+  answer: Answer | undefined,
+  question: Question | undefined
+): number {
+  if (!answer || !question) return 0
+
+  const key = getAnswerKey(answer, question).toLowerCase()
+
+  // 예산 확보 여부에 따른 점수
+  if (key.includes('예') || key.includes('있') || key.includes('확보')) return 15
+  if (key.includes('아니오') || key.includes('없') || key.includes('미확보')) return 0
+
+  return 0
+}
+
+function calculateAuthorityScore(
+  answer: Answer | undefined,
+  question: Question | undefined
+): number {
+  if (!answer || !question) return 0
+
+  const key = getAnswerKey(answer, question).toLowerCase()
+
+  // 의사결정 권한 여부에 따른 점수
+  if (key.includes('예') || key.includes('있') || key.includes('권한') || key.includes('담당자')) return 15
+  if (key.includes('아니오') || key.includes('없')) return 0
 
   return 0
 }

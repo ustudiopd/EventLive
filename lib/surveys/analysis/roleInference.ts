@@ -3,7 +3,7 @@
  * 문항의 의미적 역할을 자동 추정하거나 수동 override 지원
  */
 
-export type QuestionRole = 'timeframe' | 'project_type' | 'followup_intent' | 'other'
+export type QuestionRole = 'timeframe' | 'project_type' | 'followup_intent' | 'budget_status' | 'authority_level' | 'other'
 
 export type RoleSource = 'override' | 'heuristic' | 'unknown'
 
@@ -32,6 +32,14 @@ const ROLE_KEYWORDS: Record<QuestionRole, { body: string[]; options: string[] }>
     body: ['의향', '요청', '연락', '미팅', '데모', '상담', '제안', '자료', '방문', '컨택'],
     options: ['방문', '전화', '온라인', '데모', '자료', '관심 없음', '추후', '연락 원함'],
   },
+  budget_status: {
+    body: ['예산', '확보', '예산이', '예산은', '예산이 있', '예산이 없', '예산 확보', '예산 준비'],
+    options: ['예', '아니오', '확보', '미확보', '있', '없'],
+  },
+  authority_level: {
+    body: ['권한', '담당자', '의사결정', '구매', 'Authorized Buyer', '결정권', '결정', '권한이 있', '권한이 없'],
+    options: ['예', '아니오', '권한', '담당자', '의사결정'],
+  },
   other: {
     body: [],
     options: [],
@@ -53,6 +61,8 @@ function inferRoleFromHeuristic(
     timeframe: 0,
     project_type: 0,
     followup_intent: 0,
+    budget_status: 0,
+    authority_level: 0,
     other: 0,
   }
 
@@ -108,7 +118,7 @@ export function inferQuestionRole(
   // 1. Override가 있으면 우선 사용
   if (question.analysis_role_override) {
     const overrideRole = question.analysis_role_override as QuestionRole
-    if (['timeframe', 'project_type', 'followup_intent', 'other'].includes(overrideRole)) {
+    if (['timeframe', 'project_type', 'followup_intent', 'budget_status', 'authority_level', 'other'].includes(overrideRole)) {
       return {
         id: question.id,
         body: question.body,

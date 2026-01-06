@@ -346,11 +346,11 @@ export default function SurveyForm({
       return
     }
     if (basicFields.name?.enabled !== false && basicFields.name?.required !== false && !name.trim()) {
-      setError(`${basicFields.name?.label || '이름'}은 필수 항목입니다.`)
+      setError(`${basicFields.name?.label || '성함'}은 필수 항목입니다.`)
       return
     }
     if (basicFields.phone?.enabled !== false && basicFields.phone?.required !== false && (!phone2 || !phone3)) {
-      setError(`${basicFields.phone?.label || '휴대전화번호'}를 모두 입력해주세요.`)
+      setError(`${basicFields.phone?.label || '휴대폰 번호'}를 모두 입력해주세요.`)
       return
     }
     
@@ -481,16 +481,13 @@ export default function SurveyForm({
         {/* 참여 확인하기 버튼 */}
         {publicPath && !previewMode && (
           <div className="mb-4 flex justify-between items-center">
-            <div></div>
-            <div className="flex flex-col items-end gap-1">
-              <a
-                href={`/event${publicPath}/survey?lookup=true`}
-                className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                참여 확인하기
-              </a>
-              <p className="text-xs text-[#00B388]">*모든 사항은 필수 입력칸입니다.</p>
-            </div>
+            <a
+              href={`/event${publicPath}/survey?lookup=true`}
+              className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              참여 확인하기
+            </a>
+            <p className="text-xs text-[#00B388]">*모든 사항은 필수 입력칸입니다.</p>
           </div>
         )}
         {/* 설문 영역 (회색 배경 박스) */}
@@ -525,7 +522,7 @@ export default function SurveyForm({
               {(!form?.config || form.config.basicFields?.name?.enabled !== false) && (
                 <div>
                   <label className="block text-base font-bold mb-2">
-                    {form?.config?.basicFields?.name?.label || '성함'}
+                    성함
                     {(form?.config?.basicFields?.name?.required !== false) && <span className="text-red-500"> *</span>}
                   </label>
                   <input
@@ -540,7 +537,7 @@ export default function SurveyForm({
               {(!form?.config || form.config.basicFields?.phone?.enabled !== false) && (
                 <div>
                   <label className="block text-base font-bold mb-2">
-                    {form?.config?.basicFields?.phone?.label || '휴대폰 번호'}
+                    휴대폰 번호
                     {(form?.config?.basicFields?.phone?.required !== false) && <span className="text-red-500"> *</span>}
                   </label>
                 <div className="flex gap-2 items-center">
@@ -574,7 +571,7 @@ export default function SurveyForm({
 
             {/* 폼 문항 */}
             {form && form.questions && form.questions.length > 0 && (
-              <div className="space-y-6 pt-10">
+              <div className="space-y-10 pt-10">
                 
                 {form.questions.map((question, index) => (
                   <div key={question.id} className="space-y-2">
