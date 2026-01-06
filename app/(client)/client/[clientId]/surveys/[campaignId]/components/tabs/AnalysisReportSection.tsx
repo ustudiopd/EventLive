@@ -1046,13 +1046,32 @@ export default function AnalysisReportSection({ campaignId }: AnalysisReportSect
         body: JSON.stringify({ lens: 'general' }),
       })
 
-      const result = await response.json()
+      let result: any = {}
+      try {
+        const text = await response.text()
+        if (text) {
+          result = JSON.parse(text)
+        }
+      } catch (parseError) {
+        console.error('응답 파싱 오류:', parseError)
+        throw new Error(`서버 응답을 파싱할 수 없습니다. 상태 코드: ${response.status}`)
+      }
+
       const endTime = Date.now()
       const totalSeconds = Math.floor((endTime - startTime) / 1000)
       const formattedTime = formatTime(totalSeconds)
 
       if (!response.ok) {
-        throw new Error(result.error || '보고서 생성 실패')
+        // 더 자세한 에러 정보 표시
+        const errorMessage = result.error || '보고서 생성 실패'
+        const errorDetails = result.details ? `\n\n상세 정보: ${result.details}` : ''
+        const errorCode = result.code ? `\n\n에러 코드: ${result.code}` : ''
+        console.error('API 에러 응답:', {
+          status: response.status,
+          statusText: response.statusText,
+          result,
+        })
+        throw new Error(`${errorMessage}${errorDetails}${errorCode}`)
       }
 
       alert(`보고서가 성공적으로 생성되었습니다!\n\n생성 시간: ${formattedTime}`)

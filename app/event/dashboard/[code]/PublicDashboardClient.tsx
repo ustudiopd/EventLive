@@ -781,7 +781,7 @@ function MarkdownContent({ content, isCardMode, isRecommendations = false }: { c
 }
 
 export default function PublicDashboardClient({ campaign }: PublicDashboardClientProps) {
-  const [activeTab, setActiveTab] = useState<'stats' | 'reports' | 'qr-check'>('stats' as 'stats' | 'reports' | 'qr-check')
+  const [activeTab, setActiveTab] = useState<'stats' | 'reports' | 'qr-check' | 'manual-management'>('stats' as 'stats' | 'reports' | 'qr-check' | 'manual-management')
   const [loadingStats, setLoadingStats] = useState(false)
   const [questionStats, setQuestionStats] = useState<any[]>([])
   const [publicReports, setPublicReports] = useState<PublicReport[]>([])
@@ -809,6 +809,11 @@ export default function PublicDashboardClient({ campaign }: PublicDashboardClien
   })
   const [refreshingStats, setRefreshingStats] = useState(false)
   
+  // 수동 관리 관련 상태
+  const [manualEntries, setManualEntries] = useState<any[]>([])
+  const [loadingManualEntries, setLoadingManualEntries] = useState(false)
+  const [updatingPrize, setUpdatingPrize] = useState<string | null>(null)
+  
   useEffect(() => {
     if (campaign.form_id) {
       loadQuestionStats()
@@ -816,6 +821,9 @@ export default function PublicDashboardClient({ campaign }: PublicDashboardClien
     loadPublicReports()
     if (activeTab === 'qr-check') {
       loadVerifiedEntries()
+    }
+    if (activeTab === 'manual-management') {
+      loadManualEntries()
     }
   }, [campaign.id, campaign.form_id, activeTab])
 
@@ -993,6 +1001,60 @@ export default function PublicDashboardClient({ campaign }: PublicDashboardClien
       console.error('통계 새로고침 오류:', error)
     } finally {
       setRefreshingStats(false)
+    }
+  }
+
+  const loadManualEntries = async () => {
+    setLoadingManualEntries(true)
+    try {
+      const response = await fetch(`/api/public/event-survey/campaigns/${campaign.id}/entries`)
+      const result = await response.json()
+      
+      if (result.success && result.entries) {
+        setManualEntries(result.entries)
+      }
+    } catch (error) {
+      console.error('참여자 목록 로드 오류:', error)
+    } finally {
+      setLoadingManualEntries(false)
+    }
+  }
+
+  const updatePrize = async (entryId: string, prizeLabel: string | null) => {
+    // Optimistic update: UI를 먼저 업데이트
+    setManualEntries((prev) =>
+      prev.map((entry) =>
+        entry.id === entryId ? { ...entry, prize_label: prizeLabel } : entry
+      )
+    )
+    
+    setUpdatingPrize(entryId)
+    try {
+      const response = await fetch(`/api/public/event-survey/campaigns/${campaign.id}/entries/${entryId}/prize`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prize_label: prizeLabel }),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        // 통계만 새로고침 (목록은 이미 업데이트됨)
+        await refreshStats()
+      } else {
+        // 실패 시 원래대로 되돌리기
+        await loadManualEntries()
+        alert('경품 기록 업데이트에 실패했습니다: ' + (result.error || '알 수 없는 오류'))
+      }
+    } catch (error) {
+      console.error('경품 기록 업데이트 오류:', error)
+      // 실패 시 원래대로 되돌리기
+      await loadManualEntries()
+      alert('경품 기록 업데이트 중 오류가 발생했습니다.')
+    } finally {
+      setUpdatingPrize(null)
     }
   }
 
@@ -1351,6 +1413,19 @@ export default function PublicDashboardClient({ campaign }: PublicDashboardClien
               >
                 QR 체크인
               </button>
+              <button
+                onClick={() => {
+                  setActiveTab('manual-management')
+                  loadManualEntries()
+                }}
+                className={`px-4 sm:px-6 py-3 sm:py-4 text-sm sm:text-base font-medium border-b-2 transition-colors ${
+                  activeTab === 'manual-management'
+                    ? 'border-[#00B388] text-[#00B388]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                수동 관리
+              </button>
             </nav>
           </div>
         </div>
@@ -1626,6 +1701,231 @@ export default function PublicDashboardClient({ campaign }: PublicDashboardClien
             )}
           </div>
         )}
+          </div>
+        )}
+
+        {/* 수동 관리 탭 */}
+        {activeTab === 'manual-management' && (
+          <div>
+            {/* 헤더 및 새로고침 버튼 */}
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">수동 관리</h2>
+              <button
+                onClick={loadManualEntries}
+                disabled={loadingManualEntries}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              >
+                <svg
+                  className={`w-5 h-5 ${loadingManualEntries ? 'animate-spin' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                {loadingManualEntries ? '새로고침 중...' : '새로고침'}
+              </button>
+            </div>
+
+            {/* 통계 카드 */}
+            {!loadingManualEntries && manualEntries.length > 0 && (() => {
+              const totalParticipants = manualEntries.length
+              const umbrellaCount = manualEntries.filter((e: any) => e.prize_label === '우산').length
+              const washbagCount = manualEntries.filter((e: any) => e.prize_label === '워시백').length
+              const totalPrizeGiven = umbrellaCount + washbagCount
+              const umbrellaMax = 50
+              const washbagMax = 250
+              
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                  {/* 총 참여자 */}
+                  <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-600">총 참여자</p>
+                        <p className="text-3xl font-bold text-gray-900 mt-2">{totalParticipants}</p>
+                      </div>
+                      <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 경품 지급 */}
+                  <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-600">경품 지급</p>
+                        <p className="text-3xl font-bold text-gray-900 mt-2">{totalPrizeGiven}</p>
+                        <p className="text-xs text-gray-500 mt-1">우산 {umbrellaCount}개 / 워시백 {washbagCount}개</p>
+                      </div>
+                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                        <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 우산 현황 */}
+                  <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-600">우산</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-2">
+                          {umbrellaCount} / {umbrellaMax}
+                        </p>
+                        <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full ${
+                              umbrellaCount >= umbrellaMax ? 'bg-red-500' : 'bg-blue-500'
+                            }`}
+                            style={{ width: `${Math.min((umbrellaCount / umbrellaMax) * 100, 100)}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {umbrellaMax - umbrellaCount}개 남음
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 워시백 현황 */}
+                  <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-600">워시백</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-2">
+                          {washbagCount} / {washbagMax}
+                        </p>
+                        <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full ${
+                              washbagCount >= washbagMax ? 'bg-red-500' : 'bg-purple-500'
+                            }`}
+                            style={{ width: `${Math.min((washbagCount / washbagMax) * 100, 100)}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {washbagMax - washbagCount}개 남음
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* 참여자 목록 테이블 */}
+            {loadingManualEntries ? (
+              <div className="text-center py-12 text-gray-500">데이터를 불러오는 중...</div>
+            ) : manualEntries.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <p>참여자가 없습니다.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          완료번호
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          확인코드
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          이름
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          회사명
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          전화번호
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          완료일시
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          경품
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {manualEntries.map((entry: any) => (
+                        <tr key={entry.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {entry.survey_no}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
+                            {entry.code6}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {entry.name || '-'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {entry.company || '-'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {entry.phone_norm && entry.phone_norm.length >= 4
+                              ? `****-****-${entry.phone_norm.slice(-4)}`
+                              : '-'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {entry.completed_at
+                              ? new Date(entry.completed_at).toLocaleString('ko-KR', {
+                                  year: 'numeric',
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : '-'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-4">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name={`prize-${entry.id}`}
+                                  checked={entry.prize_label === '우산'}
+                                  onChange={() => updatePrize(entry.id, '우산')}
+                                  disabled={updatingPrize === entry.id}
+                                  className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className="text-sm text-gray-700">우산</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name={`prize-${entry.id}`}
+                                  checked={entry.prize_label === '워시백'}
+                                  onChange={() => updatePrize(entry.id, '워시백')}
+                                  disabled={updatingPrize === entry.id}
+                                  className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className="text-sm text-gray-700">워시백</span>
+                              </label>
+                              <span className="text-xs text-gray-500 w-20 text-right">
+                                {updatingPrize === entry.id ? '저장 중...' : ''}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

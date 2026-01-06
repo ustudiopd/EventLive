@@ -132,7 +132,7 @@ export async function buildAnalysisPack(
         body: q.body,
         type: q.type,
         options: normalizedQuestions.find((nq) => nq.id === q.id)?.options,
-        analysis_role_override: q.analysis_role_override,
+        analysis_role_override: q.analysis_role_override || null, // 컬럼이 없을 경우 null
       }))
     )
     console.log('[buildAnalysisPack] 역할 추정 완료:', {
