@@ -1,9 +1,45 @@
 /**
  * 문항 역할(Role) 추정 모듈
  * 문항의 의미적 역할을 자동 추정하거나 수동 override 지원
+ * 
+ * 명세서 기반: 표준 Role Taxonomy 지원 + 레거시 호환
  */
 
+// 레거시 QuestionRole (기존 시스템 호환)
 export type QuestionRole = 'timeframe' | 'project_type' | 'followup_intent' | 'budget_status' | 'authority_level' | 'other'
+
+// 표준 Role (Guideline Pack에서 사용)
+import type { Role } from './guidelinePackSchema'
+
+/**
+ * QuestionRole을 표준 Role로 변환
+ */
+export function questionRoleToStandardRole(role: QuestionRole): Role {
+  const roleMap: Record<QuestionRole, Role> = {
+    'timeframe': 'timeline',
+    'project_type': 'usecase_project_type',
+    'followup_intent': 'intent_followup',
+    'budget_status': 'budget_status',
+    'authority_level': 'authority',
+    'other': 'other',
+  }
+  return roleMap[role] || 'other'
+}
+
+/**
+ * 표준 Role을 QuestionRole로 변환 (하위 호환성)
+ */
+export function standardRoleToQuestionRole(role: Role): QuestionRole {
+  const reverseMap: Partial<Record<Role, QuestionRole>> = {
+    'timeline': 'timeframe',
+    'usecase_project_type': 'project_type',
+    'intent_followup': 'followup_intent',
+    'budget_status': 'budget_status',
+    'authority': 'authority_level',
+    'other': 'other',
+  }
+  return reverseMap[role] || 'other'
+}
 
 export type RoleSource = 'override' | 'heuristic' | 'unknown'
 

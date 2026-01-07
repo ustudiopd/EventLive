@@ -94,7 +94,14 @@ export default function AnalysisGuidelineTab({ campaignId }: AnalysisGuidelineTa
 
       if (!response.ok) {
         const errorMessage = result.error || '지침 생성 실패'
-        const errorDetails = result.details ? `\n\n상세 정보: ${result.details}` : ''
+        const errorDetails = result.details ? `\n\n${result.details}` : ''
+        
+        // NO_FORM 에러는 더 친절한 메시지 표시
+        if (result.code === 'NO_FORM') {
+          alert(`${errorMessage}${errorDetails}\n\n"폼" 탭으로 이동하여 폼을 먼저 생성해주세요.`)
+          return
+        }
+        
         const errorCode = result.code ? `\n\n에러 코드: ${result.code}` : ''
         throw new Error(`${errorMessage}${errorDetails}${errorCode}`)
       }

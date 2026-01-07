@@ -63,8 +63,8 @@ export function lintGuidelinePack(pack: GuidelinePack): LinterResult {
       roleCounts[q.role] = (roleCounts[q.role] || 0) + 1
     })
 
-    // 핵심 역할 확인
-    const coreRoles = ['timeline', 'engagement_intent']
+    // 핵심 역할 확인 (표준 Role Taxonomy)
+    const coreRoles = ['timeline', 'intent_followup']
     coreRoles.forEach((role) => {
       if (!roleCounts[role]) {
         warnings.push({
@@ -75,27 +75,67 @@ export function lintGuidelinePack(pack: GuidelinePack): LinterResult {
       }
     })
 
-    // 옵션 그룹핑 확인 (timeline 문항)
-    const timelineQuestions = pack.questionMap.filter((q) => q.role === 'timeline')
-    timelineQuestions.forEach((q) => {
-      if (!q.optionGroups || q.optionGroups.length === 0) {
+    // 옵션 매핑 확인 (single/multiple 문항)
+    pack.questionMap.forEach((q) => {
+      if (q.questionType === 'single' || q.questionType === 'multiple') {
+        // 새로운 optionMap 구조 확인
+        if (!q.optionMap && !q.optionGroups) {
+          warnings.push({
+            level: 'warning',
+            field: `questionMap[${q.questionId}].optionMap`,
+            message: '옵션 매핑이 없습니다 (optionMap 또는 optionGroups 필요)',
+          })
+        }
+
+        // optionMap이 있으면 groups도 확인
+        if (q.optionMap && !q.groups) {
+          warnings.push({
+            level: 'warning',
+            field: `questionMap[${q.questionId}].groups`,
+            message: 'optionMap이 있지만 groups 정의가 없습니다',
+          })
+        }
+
+        // 다중선택 전략 확인
+        if (q.questionType === 'multiple' && !q.multiSelectStrategy) {
+          warnings.push({
+            level: 'info',
+            field: `questionMap[${q.questionId}].multiSelectStrategy`,
+            message: '다중선택 전략이 없습니다. 기본값 "max"가 사용됩니다.',
+          })
+        }
+      }
+    })
+  }
+
+  // 5. CrosstabPlan 검증 (레거시 + 새로운 구조)
+  const pinnedCount = pack.crosstabs?.pinned?.length || 0
+  const legacyPlanCount = pack.crosstabPlan?.length || 0
+  const totalCrosstabCount = pinnedCount + legacyPlanCount
+
+  if (totalCrosstabCount < 2) {
+    warnings.push({
+      level: 'warning',
+      field: 'crosstabs',
+      message: '교차표 계획이 최소 2개 이상 필요합니다',
+    })
+  }
+
+  // pinned 교차표 검증
+  if (pack.crosstabs?.pinned) {
+    pack.crosstabs.pinned.forEach((plan, idx) => {
+      if (plan.minCellCount < 3) {
         warnings.push({
-          level: 'info',
-          field: `questionMap[${q.questionId}].optionGroups`,
-          message: 'Timeline 문항에 옵션 그룹핑이 없습니다 (권장)',
+          level: 'warning',
+          field: `crosstabs.pinned[${idx}].minCellCount`,
+          message: '최소 셀 수가 너무 작습니다 (권장: 5 이상)',
         })
       }
     })
   }
 
-  // 5. CrosstabPlan 검증
-  if (!pack.crosstabPlan || pack.crosstabPlan.length < 2) {
-    warnings.push({
-      level: 'warning',
-      field: 'crosstabPlan',
-      message: '교차표 계획이 최소 2개 이상 필요합니다',
-    })
-  } else {
+  // 레거시 crosstabPlan 검증
+  if (pack.crosstabPlan) {
     pack.crosstabPlan.forEach((plan, idx) => {
       if (plan.minCellN < 3) {
         warnings.push({

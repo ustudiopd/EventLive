@@ -71,15 +71,84 @@ interface LeadSignalsSummary {
 /**
  * 교차표 및 lift 계산
  * 구현 명세서 v1.0: 역할 기반 기본 + 확장 전략(선택적)
+ * 명세서 기반: Guideline의 교차표 계획 사용
  */
 export function buildCrosstabs(
   questions: Question[],
   answers: Answer[],
   submissions: Submission[],
-  useExtendedSelection: boolean = false // 확장 전략 사용 여부
+  useExtendedSelection: boolean = false, // 확장 전략 사용 여부
+  guideline?: { // Guideline Pack (선택적)
+    crosstabPlan?: Array<{
+      rowRole: string
+      colRole: string
+      minCellN: number
+      topKRows: number
+      topKCols: number
+    }>
+    crosstabs?: {
+      pinned?: Array<{
+        rowRole: string
+        colRole: string
+        minCellCount: number
+      }>
+      autoPick?: {
+        enabled: boolean
+        topK: number
+        minCellCount: number
+      }
+    }
+  }
 ): Crosstab[] {
   const crosstabs: Crosstab[] = []
 
+  // Guideline이 있으면 Guideline의 교차표 계획 우선 사용
+  if (guideline) {
+    // 1. pinned 교차표 생성
+    if (guideline.crosstabs?.pinned) {
+      for (const plan of guideline.crosstabs.pinned) {
+        const rowQuestion = findQuestionByRole(questions, plan.rowRole)
+        const colQuestion = findQuestionByRole(questions, plan.colRole)
+
+        if (rowQuestion && colQuestion) {
+          const crosstab = calculateCrosstab(
+            rowQuestion,
+            colQuestion,
+            answers,
+            submissions,
+            plan.minCellCount
+          )
+          if (crosstab) crosstabs.push(crosstab)
+        }
+      }
+    }
+
+    // 2. 레거시 crosstabPlan 지원
+    if (guideline.crosstabPlan && crosstabs.length === 0) {
+      for (const plan of guideline.crosstabPlan) {
+        const rowQuestion = findQuestionByRole(questions, plan.rowRole)
+        const colQuestion = findQuestionByRole(questions, plan.colRole)
+
+        if (rowQuestion && colQuestion) {
+          const crosstab = calculateCrosstab(
+            rowQuestion,
+            colQuestion,
+            answers,
+            submissions,
+            plan.minCellN
+          )
+          if (crosstab) crosstabs.push(crosstab)
+        }
+      }
+    }
+
+    // Guideline 교차표가 있으면 여기서 종료
+    if (crosstabs.length > 0) {
+      return crosstabs
+    }
+  }
+
+  // Guideline이 없거나 교차표가 없으면 기본 전략 사용
   // 1. 기본 전략: 역할 기반 핵심 쌍 선택
   const timingQuestion = questions.find((q) => q.role === 'timeframe')
   const followupQuestion = questions.find((q) => q.role === 'followup_intent')
@@ -173,11 +242,29 @@ export function buildCrosstabs(
   return crosstabs
 }
 
+/**
+ * Role을 QuestionRole로 변환 (레거시 호환)
+ */
+function findQuestionByRole(questions: Question[], role: string): Question | undefined {
+  // 표준 Role을 레거시 Role로 변환
+  const roleMap: Record<string, string> = {
+    'timeline': 'timeframe',
+    'intent_followup': 'followup_intent',
+    'usecase_project_type': 'project_type',
+    'budget_status': 'budget_status',
+    'authority': 'authority_level',
+  }
+  const legacyRole = roleMap[role] || role
+
+  return questions.find((q) => q.role === legacyRole)
+}
+
 function calculateCrosstab(
   rowQuestion: Question,
   colQuestion: Question,
   answers: Answer[],
-  submissions: Submission[]
+  submissions: Submission[],
+  minCellCount: number = 5 // Guideline에서 지정 가능
 ): Crosstab | null {
   // submission별로 답변 매핑
   const submissionAnswers: Record<string, { row?: string; col?: string }> = {}
@@ -252,7 +339,7 @@ function calculateCrosstab(
         lift: Math.round(lift * 100) / 100,
       })
 
-      if (count < 5) {
+      if (count < minCellCount) {
         hasLowSample = true
       }
     })
@@ -305,12 +392,24 @@ function getAnswerKey(answer: Answer, question: Question): string {
 
 /**
  * 리드 스코어링
+ * 명세서 기반: Guideline의 리드 스코어링 규칙 사용
  */
 export function buildLeadSignals(
   questions: Question[],
   answers: Answer[],
-  submissions: Submission[]
+  submissions: Submission[],
+  guideline?: { // Guideline Pack (선택적)
+    leadScoring?: {
+      enabled: boolean
+      components: Array<{ role: string; weight: number }>
+      tierThresholds: { P0: number; P1: number; P2: number; P3: number }
+      recommendedActionsByTier: Record<string, string>
+    }
+  }
 ): LeadSignalsSummary {
+  // Guideline이 있고 리드 스코어링이 활성화되어 있으면 Guideline 규칙 사용
+  const useGuideline = guideline?.leadScoring?.enabled && guideline.leadScoring.components.length > 0
+
   const timingQuestion = questions.find((q) => q.role === 'timeframe')
   const followupQuestion = questions.find((q) => q.role === 'followup_intent')
   const projectTypeQuestion = questions.find((q) => q.role === 'project_type')
@@ -338,21 +437,80 @@ export function buildLeadSignals(
       (a) => a.submission_id === submission.id && a.question_id === authorityQuestion?.id
     )
 
-    const timingScore = calculateTimingScore(timingAnswer, timingQuestion)
-    const followupScore = calculateFollowupScore(followupAnswer, followupQuestion)
-    const projectTypeScore = calculateProjectTypeScore(
-      projectTypeAnswer,
-      projectTypeQuestion
-    )
-    const budgetScore = calculateBudgetScore(budgetAnswer, budgetQuestion)
-    const authorityScore = calculateAuthorityScore(authorityAnswer, authorityQuestion)
+    // Guideline 기반 스코어 계산
+    let leadScore = 0
+    let timingScore = 0
+    let followupScore = 0
+    let projectTypeScore = 0
+    let budgetScore = 0
+    let authorityScore = 0
 
-    const leadScore = Math.max(
-      0,
-      Math.min(100, timingScore + followupScore + projectTypeScore + budgetScore + authorityScore)
-    )
+    if (useGuideline) {
+      // Guideline의 components를 사용하여 가중 합계 계산
+      for (const component of guideline!.leadScoring!.components) {
+        const question = findQuestionByRole(questions, component.role)
+        if (!question) continue
 
-    const tier = getTierFromScore(leadScore)
+        const answer = answers.find(
+          (a) => a.submission_id === submission.id && a.question_id === question.id
+        )
+
+        let score = 0
+        // 레거시 Role로 변환하여 기존 계산 함수 사용
+        const legacyRole = component.role === 'timeline' ? 'timeframe' :
+                         component.role === 'intent_followup' ? 'followup_intent' :
+                         component.role === 'usecase_project_type' ? 'project_type' :
+                         component.role === 'authority' ? 'authority_level' : component.role
+        
+        if (legacyRole === 'timeframe') {
+          score = calculateTimingScore(answer, question)
+          timingScore = score
+        } else if (legacyRole === 'followup_intent') {
+          score = calculateFollowupScore(answer, question)
+          followupScore = score
+        } else if (legacyRole === 'project_type') {
+          score = calculateProjectTypeScore(answer, question)
+          projectTypeScore = score
+        } else if (legacyRole === 'budget_status') {
+          score = calculateBudgetScore(answer, question)
+          budgetScore = score
+        } else if (legacyRole === 'authority_level') {
+          score = calculateAuthorityScore(answer, question)
+          authorityScore = score
+        }
+
+        leadScore += score * component.weight
+      }
+
+      // 정규화 (weightedSumTo100)
+      const totalWeight = guideline!.leadScoring!.components.reduce((sum, c) => sum + c.weight, 0)
+      if (totalWeight > 0) {
+        leadScore = (leadScore / totalWeight) * 100
+      }
+      leadScore = Math.max(0, Math.min(100, leadScore))
+    } else {
+      // 기본 계산 (Guideline 없음)
+      timingScore = calculateTimingScore(timingAnswer, timingQuestion)
+      followupScore = calculateFollowupScore(followupAnswer, followupQuestion)
+      projectTypeScore = calculateProjectTypeScore(
+        projectTypeAnswer,
+        projectTypeQuestion
+      )
+      budgetScore = calculateBudgetScore(budgetAnswer, budgetQuestion)
+      authorityScore = calculateAuthorityScore(authorityAnswer, authorityQuestion)
+
+      leadScore = Math.max(
+        0,
+        Math.min(100, timingScore + followupScore + projectTypeScore + budgetScore + authorityScore)
+      )
+    }
+
+    // 티어 결정 (Guideline의 tierThresholds 사용 또는 기본값)
+    const tierThresholds = useGuideline 
+      ? guideline!.leadScoring!.tierThresholds
+      : { P0: 80, P1: 60, P2: 40, P3: 20 }
+    
+    const tier = getTierFromScore(leadScore, tierThresholds)
 
     const reasons: string[] = []
     if (timingScore >= 25) reasons.push('단기 프로젝트 계획')
@@ -361,7 +519,11 @@ export function buildLeadSignals(
     if (budgetScore >= 15) reasons.push('예산 확보')
     if (authorityScore >= 15) reasons.push('의사결정 권한 보유')
 
-    const recommendedNextStep = getRecommendedNextStep(tier, followupAnswer, followupQuestion)
+    // 추천 액션 (Guideline의 recommendedActionsByTier 사용 또는 기본값)
+    const recommendedNextStep = useGuideline
+      ? (guideline!.leadScoring!.recommendedActionsByTier[tier] || 
+         getRecommendedNextStep(tier, followupAnswer, followupQuestion))
+      : getRecommendedNextStep(tier, followupAnswer, followupQuestion)
 
     leadQueue.push({
       submissionId: submission.id,
@@ -492,7 +654,18 @@ function calculateAuthorityScore(
   return 0
 }
 
-function getTierFromScore(score: number): 'P0' | 'P1' | 'P2' | 'P3' | 'P4' {
+function getTierFromScore(
+  score: number,
+  tierThresholds?: { P0: number; P1: number; P2: number; P3: number }
+): 'P0' | 'P1' | 'P2' | 'P3' | 'P4' {
+  if (tierThresholds) {
+    if (score >= tierThresholds.P0) return 'P0'
+    if (score >= tierThresholds.P1) return 'P1'
+    if (score >= tierThresholds.P2) return 'P2'
+    if (score >= tierThresholds.P3) return 'P3'
+    return 'P4'
+  }
+  // 기본값
   if (score >= 80) return 'P0'
   if (score >= 60) return 'P1'
   if (score >= 40) return 'P2'

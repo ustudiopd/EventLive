@@ -121,7 +121,7 @@ export function renderGuidelinePackMD(
 
   // Crosstab Plan
   md += `## 교차표 계획\n\n`
-  if (pack.crosstabPlan.length === 0) {
+  if (!pack.crosstabPlan || pack.crosstabPlan.length === 0) {
     md += `교차표 계획이 없습니다.\n\n`
   } else {
     pack.crosstabPlan.forEach((plan, idx) => {

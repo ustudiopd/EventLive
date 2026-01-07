@@ -22,6 +22,12 @@ import { normalizeQuestions, normalizeQuestion } from './utils/normalizeQuestion
 import { normalizeAnswers } from './utils/normalizeAnswers'
 import { inferQuestionRoles, type QuestionWithRole } from './roleInference'
 import { safePercentage } from './utils/statsMath'
+import { applyGuidelineRoleMapping } from './applyGuidelineToMetrics'
+import { reconcileGuideline } from './reconcileGuideline'
+import { compileGuideline } from './compileGuideline'
+import { buildFormFingerprint } from './buildFormFingerprint'
+import { GuidelinePackSchema } from './guidelinePackSchema'
+import type { GuidelinePack } from './guidelinePackSchema'
 
 interface Question {
   id: string
@@ -53,7 +59,8 @@ interface Submission {
  */
 export async function buildAnalysisPack(
   campaignId: string,
-  campaign?: { id: string; title: string; form_id: string | null }
+  campaign?: { id: string; title: string; form_id: string | null },
+  guidelineId?: string | null
 ): Promise<AnalysisPack> {
   const admin = createAdminSupabase()
 
@@ -111,6 +118,54 @@ export async function buildAnalysisPack(
     throw new Error(`No questions found for campaign: ${campaignId} (form_id: ${campaignData.form_id})`)
   }
 
+  // 2-0. Guideline 조회 및 적용 (명세서 기반)
+  let guideline: GuidelinePack | null = null
+  let guidelineReconcileWarnings: string[] = []
+  
+  if (guidelineId) {
+    const { data: guidelineData, error: guidelineError } = await admin
+      .from('survey_analysis_guidelines')
+      .select('*')
+      .eq('id', guidelineId)
+      .eq('campaign_id', campaignId)
+      .single()
+
+    if (!guidelineError && guidelineData) {
+      try {
+        guideline = GuidelinePackSchema.parse(guidelineData.guideline_pack)
+        console.log('[buildAnalysisPack] Guideline 로드 완료:', {
+          guidelineId,
+          questionMapCount: guideline.questionMap.length,
+        })
+      } catch (parseError: any) {
+        console.error('[buildAnalysisPack] Guideline 파싱 실패:', parseError)
+        // Guideline 파싱 실패는 경고만 하고 계속 진행
+      }
+    }
+  } else {
+    // Guideline ID가 없으면 최신 published Guideline 자동 선택
+    const { data: publishedGuideline } = await admin
+      .from('survey_analysis_guidelines')
+      .select('*')
+      .eq('campaign_id', campaignId)
+      .eq('status', 'published')
+      .order('published_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (publishedGuideline) {
+      try {
+        guideline = GuidelinePackSchema.parse(publishedGuideline.guideline_pack)
+        console.log('[buildAnalysisPack] 최신 Published Guideline 자동 선택:', {
+          guidelineId: publishedGuideline.id,
+          questionMapCount: guideline.questionMap.length,
+        })
+      } catch (parseError: any) {
+        console.error('[buildAnalysisPack] Published Guideline 파싱 실패:', parseError)
+      }
+    }
+  }
+
   // 2-1. 문항 정규화 및 역할 추정 (구현 명세서 v1.0)
   let normalizedQuestions: ReturnType<typeof normalizeQuestions>
   let questionsWithRoleData: ReturnType<typeof inferQuestionRoles>
@@ -126,19 +181,99 @@ export async function buildAnalysisPack(
       } : null,
     })
 
-    questionsWithRoleData = inferQuestionRoles(
-      questions.map((q: any) => ({
-        id: q.id,
-        body: q.body,
-        type: q.type,
-        options: normalizedQuestions.find((nq) => nq.id === q.id)?.options,
-        analysis_role_override: q.analysis_role_override || null, // 컬럼이 없을 경우 null
-      }))
-    )
-    console.log('[buildAnalysisPack] 역할 추정 완료:', {
-      count: questionsWithRoleData.length,
-      roles: questionsWithRoleData.map((q) => ({ id: q.id, role: q.role, source: q.roleSource })),
-    })
+    // Guideline이 있으면 Guideline 기반 역할 매핑, 없으면 자동 추정
+    if (guideline) {
+      // Fingerprint mismatch 확인 및 reconcile
+      const currentFingerprint = buildFormFingerprint({
+        questions: questions.map((q: any) => ({
+          id: q.id,
+          order_no: q.order_no,
+          body: q.body,
+          type: q.type,
+          options: q.options,
+        })),
+      })
+      if (guideline.formFingerprint !== currentFingerprint) {
+        console.warn('[buildAnalysisPack] Fingerprint mismatch:', {
+          guidelineFingerprint: guideline.formFingerprint,
+          currentFingerprint,
+        })
+
+        // Reconcile 시도
+        const reconcileResult = reconcileGuideline(
+          guideline,
+          currentFingerprint,
+          normalizedQuestions.map((nq) => ({
+            id: nq.id,
+            body: nq.body,
+            type: nq.type,
+            options: nq.options,
+            role: 'other' as const,
+            roleSource: 'unknown' as const,
+          }))
+        )
+
+        if (reconcileResult.canReconcile && reconcileResult.reconciled) {
+          guideline = reconcileResult.reconciled
+          guidelineReconcileWarnings = reconcileResult.warnings
+          console.log('[buildAnalysisPack] Guideline reconcile 완료:', {
+            confidence: reconcileResult.confidence,
+            warnings: reconcileResult.warnings,
+          })
+        } else {
+          console.warn('[buildAnalysisPack] Guideline reconcile 실패, 자동 추정으로 fallback')
+          guideline = null // reconcile 실패 시 Guideline 사용 안 함
+        }
+      }
+
+      // Guideline 기반 역할 매핑
+      if (guideline) {
+        questionsWithRoleData = applyGuidelineRoleMapping(
+          questions.map((q: any) => ({
+            id: q.id,
+            body: q.body,
+            type: q.type,
+            options: normalizedQuestions.find((nq) => nq.id === q.id)?.options,
+            logical_key: q.logical_key || null,
+          })),
+          guideline
+        )
+        console.log('[buildAnalysisPack] Guideline 기반 역할 매핑 완료:', {
+          count: questionsWithRoleData.length,
+          roles: questionsWithRoleData.map((q) => ({ id: q.id, role: q.role, source: q.roleSource })),
+        })
+      } else {
+        // Guideline 없거나 reconcile 실패 시 자동 추정
+        questionsWithRoleData = inferQuestionRoles(
+          questions.map((q: any) => ({
+            id: q.id,
+            body: q.body,
+            type: q.type,
+            options: normalizedQuestions.find((nq) => nq.id === q.id)?.options,
+            analysis_role_override: q.analysis_role_override || null,
+          }))
+        )
+        console.log('[buildAnalysisPack] 자동 역할 추정 완료:', {
+          count: questionsWithRoleData.length,
+          roles: questionsWithRoleData.map((q) => ({ id: q.id, role: q.role, source: q.roleSource })),
+        })
+      }
+    } else {
+      // Guideline 없음: 자동 추정
+      questionsWithRoleData = inferQuestionRoles(
+        questions.map((q: any) => ({
+          id: q.id,
+          body: q.body,
+          type: q.type,
+          options: normalizedQuestions.find((nq) => nq.id === q.id)?.options,
+          analysis_role_override: q.analysis_role_override || null,
+        }))
+      )
+      console.log('[buildAnalysisPack] 자동 역할 추정 완료 (Guideline 없음):', {
+        count: questionsWithRoleData.length,
+        roles: questionsWithRoleData.map((q) => ({ id: q.id, role: q.role, source: q.roleSource })),
+      })
+    }
 
     // 기존 인터페이스와 호환되도록 변환
     questionsWithRole = questionsWithRoleData.map((qwr) => ({
@@ -322,10 +457,16 @@ export async function buildAnalysisPack(
 
   let crosstabs: ReturnType<typeof buildCrosstabs>
   try {
+    // Guideline이 있으면 교차표 계획 전달
     crosstabs = buildCrosstabs(
       questionsWithRole,
       answersArray,
-      submissionsArray
+      submissionsArray,
+      false, // useExtendedSelection
+      guideline ? {
+        crosstabPlan: guideline.crosstabPlan,
+        crosstabs: guideline.crosstabs,
+      } : undefined
     )
     console.log('[buildAnalysisPack] 교차표 생성 완료:', {
       crosstabsCount: crosstabs.length,
@@ -358,7 +499,14 @@ export async function buildAnalysisPack(
   )
 
   const leadSignals = leadScoringEnabled
-    ? buildLeadSignals(questionsWithRole, answersArray, submissionsArray)
+    ? buildLeadSignals(
+        questionsWithRole,
+        answersArray,
+        submissionsArray,
+        guideline ? {
+          leadScoring: guideline.leadScoring,
+        } : undefined
+      )
     : {
         distribution: [],
         channelPreference: {},

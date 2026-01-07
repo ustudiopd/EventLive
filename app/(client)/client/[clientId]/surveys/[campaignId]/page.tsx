@@ -92,13 +92,12 @@ export default async function SurveyCampaignDetailPage({
     .eq('campaign_id', campaignId)
     .not('prize_recorded_at', 'is', null)
   
-  // 참여자 목록 (최근 100개, 답변 포함)
+  // 참여자 목록 (전체, 답변 포함)
   const { data: entries } = await admin
     .from('event_survey_entries')
     .select('*')
     .eq('campaign_id', campaignId)
     .order('completed_at', { ascending: false })
-    .limit(100)
   
   // 각 참여자의 설문 답변도 함께 가져오기
   let entriesWithAnswers: any[] = entries || []

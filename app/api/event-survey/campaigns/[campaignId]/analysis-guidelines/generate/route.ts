@@ -43,7 +43,11 @@ export async function POST(
 
     if (!campaign.form_id) {
       return NextResponse.json(
-        { error: 'Campaign has no form', code: 'NO_FORM' },
+        { 
+          error: '설문조사 폼이 없습니다. 먼저 폼을 생성해주세요.', 
+          code: 'NO_FORM',
+          details: '분석 지침을 생성하려면 설문조사 폼이 필요합니다. "폼" 탭에서 폼을 생성하거나 샘플 폼을 생성해주세요.'
+        },
         { status: 400 }
       )
     }
@@ -104,7 +108,11 @@ export async function POST(
 
     if (questionsError || !questions || questions.length === 0) {
       return NextResponse.json(
-        { error: 'No questions found', code: 'NO_QUESTIONS' },
+        { 
+          error: '설문 문항이 없습니다.', 
+          code: 'NO_QUESTIONS',
+          details: '분석 지침을 생성하려면 최소 1개 이상의 설문 문항이 필요합니다. "폼" 탭에서 문항을 추가해주세요.'
+        },
         { status: 400 }
       )
     }
@@ -122,6 +130,17 @@ export async function POST(
         options: q.options,
       })),
     })
+
+    // 현재 폼 revision 조회
+    const { data: latestQuestion } = await admin
+      .from('form_questions')
+      .select('revision')
+      .eq('form_id', campaign.form_id)
+      .order('revision', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const currentFormRevision = latestQuestion?.revision || 1
 
     // Guideline Pack 생성
     const guidelinePack = await generateGuidelinePackWithRetry(
@@ -142,6 +161,7 @@ export async function POST(
         version_int: 1,
         title: title || `Guideline ${new Date().toISOString()}`,
         form_fingerprint: formFingerprint,
+        form_revision: currentFormRevision,
         guideline_pack: guidelinePack,
         agency_id: campaign.agency_id,
         client_id: campaign.client_id,

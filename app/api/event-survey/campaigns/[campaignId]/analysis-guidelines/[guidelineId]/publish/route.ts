@@ -7,6 +7,10 @@ import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth/guards'
 import { createAdminSupabase } from '@/lib/supabase/admin'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { compileGuideline } from '@/lib/surveys/analysis/compileGuideline'
+import { GuidelinePackSchema } from '@/lib/surveys/analysis/guidelinePackSchema'
+import { inferQuestionRoles } from '@/lib/surveys/analysis/roleInference'
+import { normalizeQuestions } from '@/lib/surveys/analysis/utils/normalizeQuestions'
 
 export const runtime = 'nodejs'
 
@@ -90,6 +94,63 @@ export async function POST(
       )
     }
 
+    // Guideline Pack 조회 및 Compile 수행
+    const { data: guidelineFull, error: guidelineFullError } = await admin
+      .from('survey_analysis_guidelines')
+      .select('*, form_id')
+      .eq('id', guidelineId)
+      .single()
+
+    if (guidelineFullError || !guidelineFull) {
+      return NextResponse.json(
+        { error: 'Guideline not found', code: 'GUIDELINE_NOT_FOUND' },
+        { status: 404 }
+      )
+    }
+
+    // 현재 폼 문항 조회 및 Compile
+    const { data: questions } = await admin
+      .from('form_questions')
+      .select('id, body, type, options, order_no, analysis_role_override, revision')
+      .eq('form_id', guidelineFull.form_id)
+      .order('order_no', { ascending: true })
+
+    let compiledConfig = null
+    if (questions && questions.length > 0) {
+      const normalizedQuestions = normalizeQuestions(questions)
+      const questionsWithRoles = inferQuestionRoles(
+        questions.map((q: any) => ({
+          id: q.id,
+          body: q.body,
+          type: q.type,
+          options: normalizedQuestions.find((nq) => nq.id === q.id)?.options,
+          analysis_role_override: q.analysis_role_override || null,
+        }))
+      )
+
+      const guidelinePack = GuidelinePackSchema.parse(guidelineFull.guideline_pack)
+      const currentFormRevision = questions[0]?.revision || 1
+
+      const compileResult = compileGuideline(
+        guidelinePack,
+        questionsWithRoles,
+        currentFormRevision
+      )
+
+      if (compileResult.success && compileResult.compiled) {
+        compiledConfig = compileResult.compiled
+        console.log('[publishGuideline] Compile 완료:', {
+          compiledQuestionCount: compileResult.compiled.questionMap.length,
+          warnings: compileResult.warnings,
+        })
+      } else {
+        console.warn('[publishGuideline] Compile 실패:', {
+          errors: compileResult.errors,
+          warnings: compileResult.warnings,
+        })
+      }
+    }
+
     // 기존 published Guideline을 archived로 변경
     const { error: archiveError } = await admin
       .from('survey_analysis_guidelines')
@@ -102,14 +163,20 @@ export async function POST(
       // 계속 진행 (unique constraint가 있으므로 실패해도 괜찮음)
     }
 
-    // 해당 Guideline을 published로 변경
+    // 해당 Guideline을 published로 변경 (compiled config 포함)
+    const updateData: any = {
+      status: 'published',
+      published_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    if (compiledConfig) {
+      updateData.guideline_pack_compiled = compiledConfig
+    }
+
     const { data: published, error: publishError } = await admin
       .from('survey_analysis_guidelines')
-      .update({
-        status: 'published',
-        published_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', guidelineId)
       .select()
       .single()

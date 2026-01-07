@@ -16,7 +16,9 @@ create table if not exists public.survey_analysis_guidelines (
   description text,
 
   form_fingerprint text not null,
+  form_revision int not null default 1,
   guideline_pack jsonb not null,
+  guideline_pack_compiled jsonb,    -- 실행용으로 정규화된 컴파일 결과
 
   agency_id uuid,
   client_id uuid,

@@ -120,11 +120,24 @@ export async function POST(
 
         console.log('[새 파이프라인] 시작:', { campaignId })
 
-        // 1. Analysis Pack 생성 (이미 조회한 campaign 정보 전달)
+        // 0. Published Guideline 조회 (있으면 사용)
+        const { data: publishedGuideline } = await admin
+          .from('survey_analysis_guidelines')
+          .select('id')
+          .eq('campaign_id', campaignId)
+          .eq('status', 'published')
+          .order('published_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        const guidelineId = publishedGuideline?.id || null
+        console.log('[새 파이프라인] Guideline 조회:', { guidelineId })
+
+        // 1. Analysis Pack 생성 (이미 조회한 campaign 정보 전달, Guideline ID 포함)
         console.log('[새 파이프라인] Analysis Pack 생성 중...')
         let analysisPack: any
         try {
-          analysisPack = await buildAnalysisPack(campaignId, campaign)
+          analysisPack = await buildAnalysisPack(campaignId, campaign, guidelineId)
           console.log('[새 파이프라인] Analysis Pack 생성 완료:', {
             evidenceCount: analysisPack.evidenceCatalog.length,
             highlightsCount: analysisPack.highlights.length,
